@@ -14,8 +14,17 @@ clustered_files = {}  # filename -> cluster_id
 for cluster_name in os.listdir(CLUSTER_DIR):
     if not cluster_name.startswith("cluster_"):
         continue
+    
+    # 确保只处理目录而不是文件
+    cluster_path = os.path.join(CLUSTER_DIR, cluster_name)
+    if not os.path.isdir(cluster_path):
+        continue
 
-    cluster_id = int(cluster_name.split("_")[1])
+    # 处理噪声点目录
+    if cluster_name == "cluster_noise":
+        cluster_id = -1  # 为噪声点分配特殊ID
+    else:
+        cluster_id = int(cluster_name.split("_")[1])
     cluster_path = os.path.join(CLUSTER_DIR, cluster_name)
 
     for fname in os.listdir(cluster_path):
@@ -77,15 +86,15 @@ if os.path.exists(INFO_CSV):
         
         matched_count = df['sherd_id'].notna().sum()
         total_count = len(df)
-        print(f"✅ 成功合并 {INFO_CSV}，匹配了 {matched_count}/{total_count} 条记录 ({matched_count/total_count*100:.1f}%)")
+        print(f"成功合并 {INFO_CSV}，匹配了 {matched_count}/{total_count} 条记录 ({matched_count/total_count*100:.1f}%)")
     except Exception as e:
-        print(f"⚠️ 加载或合并 {INFO_CSV} 失败: {e}，将继续使用原始数据")
+        print(f"加载或合并 {INFO_CSV} 失败: {e}，将继续使用原始数据")
 else:
-    print(f"⚠️ 未找到 {INFO_CSV}，跳过信息合并")
+    print(f"未找到 {INFO_CSV}，跳过信息合并")
 
 # ========================
 # 7. 保存
 # ========================
 df.to_csv(OUTPUT_CSV, index=False)
-print(f"✅ 已保存合并后的表格到: {OUTPUT_CSV}")
-print(f"📊 表格包含 {len(df)} 行，{len(df.columns)} 列")
+print(f"已保存合并后的表格到: {OUTPUT_CSV}")
+print(f" 表格包含 {len(df)} 行，{len(df.columns)} 列")

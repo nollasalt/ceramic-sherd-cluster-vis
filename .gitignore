@@ -3,7 +3,11 @@
 venv/
 
 # 忽略图像数据文件夹
+test/
 all_cutouts/
+exterior/all_kmeans_new/
+exterior/cutouts/
+exterior/exterior_kmeans_results/
 
 # 忽略聚类结果文件夹
 all_kmeans_new/
