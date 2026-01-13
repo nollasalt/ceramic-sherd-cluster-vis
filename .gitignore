@@ -5,10 +5,11 @@ venv/
 # 忽略图像数据文件夹
 test/
 all_cutouts/
+__pycache__/
 exterior/all_kmeans_new/
 exterior/cutouts/
 exterior/exterior_kmeans_results/
-
+exterior/__pycache__/
 # 忽略聚类结果文件夹
 all_kmeans_new/
 

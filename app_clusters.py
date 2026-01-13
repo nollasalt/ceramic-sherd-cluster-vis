@@ -163,10 +163,9 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
 
     # 准备降维算法选项
     algorithm_options = [
-        {'label': 'PCA', 'value': 'pca'},
-        {'label': 't-SNE', 'value': 'tsne'}
+        {'label': 't-SNE', 'value': 'tsne'},
+        {'label': 'UMAP', 'value': 'umap'}
     ]
-    algorithm_options.append({'label': 'UMAP', 'value': 'umap'})
     
     # cluster_metadata 已在上面加载
     
@@ -618,8 +617,6 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             params[reduction_key] = {'perplexity': 30}
         elif selected_algorithm == 'umap':
             params[reduction_key] = {'n_neighbors': 15, 'min_dist': 0.1}
-        elif selected_algorithm == 'pca':
-            params[reduction_key] = {}
         
         # 更新data-store
         updated_data_store = {
@@ -684,7 +681,7 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         if row is None:
             x = p.get('x')
             y = p.get('y')
-            for algo in ['tsne', 'umap', 'pca']:
+            for algo in ['tsne', 'umap']:
                 if f'{algo}_0' in df.columns and f'{algo}_1' in df.columns:
                     row_candidate = df[(np.isclose(df[f'{algo}_0'], x)) & (np.isclose(df[f'{algo}_1'], y))]
                     if len(row_candidate) > 0:
