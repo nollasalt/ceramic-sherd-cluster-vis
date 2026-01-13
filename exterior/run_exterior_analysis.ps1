@@ -11,7 +11,7 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 
 # 项目根目录
 $PROJECT_ROOT = "d:\Code\Project\ceramic-sherd-cluster-vis\cluster\src1"
-$TEST_ROOT = "$PROJECT_ROOT\test"
+$TEST_ROOT = "$PROJECT_ROOT\exterior"
 $VENV_PATH = "$PROJECT_ROOT\venv\Scripts\python.exe"
 
 # 检查虚拟环境Python是否存在

@@ -19,10 +19,12 @@ from data_processing import (
     detect_columns,
     ensure_sample_ids,
     build_fused_samples,
+    build_samples_for_mode,
     ensure_dimensionality_reduction,
     create_cluster_pattern_heatmap,
     create_cluster_similarity_matrix,
     img_to_base64,
+    perform_kmeans_clustering,
     DEFAULT_CSV,
     DEFAULT_IMAGE_ROOT,
 )
@@ -30,6 +32,8 @@ from data_processing import (
 # 配置常量
 CSV = DEFAULT_CSV
 IMAGE_ROOT = DEFAULT_IMAGE_ROOT
+FEATURES_CSV = Path(__file__).parent / 'all_features_dinov3.csv'
+TABLE_CSV = Path(__file__).parent / 'sherd_cluster_table_clustered_only.csv'
 
 # 生成足够多的不同颜色用于聚类显示（支持最多50个聚类）
 def generate_distinct_colors(n_colors):
@@ -81,15 +85,39 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
     if len(raw_feature_cols) == 0:
         raise RuntimeError('未找到数值特征列')
 
-    # fuse front/back so each sample is represented once (matching k-means input)
-    df, feature_cols, dropped_samples = build_fused_samples(df, raw_feature_cols, cluster_col, image_col)
-    if len(df) == 0:
-        raise RuntimeError('融合正反面后没有可用的数据，请检查输入')
-    if dropped_samples:
-        print(f"有 {len(dropped_samples)} 个样本因缺少正反面被跳过: {dropped_samples[:10]} ...")
+    # 从元数据读取聚类模式
+    cluster_metadata = load_cluster_metadata()
+    initial_cluster_mode = cluster_metadata.get('cluster_mode', None) if cluster_metadata else None
+    
+    # 如果元数据中没有聚类模式，则根据数据自动检测
+    if initial_cluster_mode is None:
+        img_name_col = 'image_name' if 'image_name' in df.columns else image_col
+        has_exterior = df[img_name_col].str.lower().str.contains('exterior').any()
+        has_interior = df[img_name_col].str.lower().str.contains('interior').any()
+        
+        if has_exterior and has_interior:
+            initial_cluster_mode = 'merged'
+        elif has_exterior:
+            initial_cluster_mode = 'exterior'
+        elif has_interior:
+            initial_cluster_mode = 'interior'
+        else:
+            initial_cluster_mode = 'merged'  # 默认
+        print(f"自动检测聚类模式: {initial_cluster_mode} (exterior={has_exterior}, interior={has_interior})")
+    else:
+        print(f"从元数据读取聚类模式: {initial_cluster_mode}")
 
-    # 初始使用UMAP降维
+    # 根据聚类模式构建样本数据
+    df, feature_cols, dropped_samples = build_samples_for_mode(df, raw_feature_cols, cluster_col, image_col, initial_cluster_mode)
+    if len(df) == 0:
+        raise RuntimeError('构建样本后没有可用的数据，请检查输入')
+    if dropped_samples:
+        print(f"有 {len(dropped_samples)} 个样本被跳过: {dropped_samples[:10]} ...")
+
+    # 初始使用UMAP降维，同时计算2D和3D版本
     df, initial_reduction_key = ensure_dimensionality_reduction(df, feature_cols, algorithm='umap', n_components=2)
+    # 预计算3D降维结果，确保首次选择3D时有数据可用
+    df, _ = ensure_dimensionality_reduction(df, feature_cols, algorithm='umap', n_components=3)
 
     app = dash.Dash(__name__)
 
@@ -140,8 +168,7 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
     ]
     algorithm_options.append({'label': 'UMAP', 'value': 'umap'})
     
-    # 加载聚类元数据
-    cluster_metadata = load_cluster_metadata()
+    # cluster_metadata 已在上面加载
     
     # 准备可视化类型选项
     visualization_types = [
@@ -151,7 +178,42 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
     ]
     
     app.layout = html.Div([
+        # 添加 Location 组件用于页面重定向
+        dcc.Location(id='url', refresh=True),
+        
         html.H3('陶片聚类交互可视化'),
+        
+        # 聚类控制面板
+        html.Div([
+            html.Div([
+                html.Label('聚类数量 (K):'),
+                dcc.Input(id='n-clusters-input', type='number', value=20, min=2, step=1, 
+                         style={'width': '80px', 'marginLeft': '10px', 'marginRight': '20px'}),
+            ], style={'display': 'inline-block', 'marginRight': '20px'}),
+            html.Div([
+                html.Label('聚类模式:'),
+                dcc.Dropdown(
+                    id='cluster-mode-selector',
+                    options=[
+                        {'label': '融合 (正反面)', 'value': 'merged'},
+                        {'label': '仅外部 (exterior)', 'value': 'exterior'},
+                        {'label': '仅内部 (interior)', 'value': 'interior'}
+                    ],
+                    value=initial_cluster_mode,
+                    clearable=False,
+                    style={'width': '150px', 'marginLeft': '10px'}
+                ),
+            ], style={'display': 'inline-block', 'marginRight': '20px', 'verticalAlign': 'middle'}),
+            html.Button('重新聚类', id='recluster-button', n_clicks=0,
+                       style={'backgroundColor': '#007bff', 'color': 'white', 'border': 'none', 
+                              'padding': '8px 16px', 'cursor': 'pointer', 'borderRadius': '4px'}),
+            dcc.Loading(
+                id='recluster-loading',
+                type='circle',
+                children=[html.Span(id='recluster-status', style={'marginLeft': '15px', 'color': '#666'})],
+                style={'display': 'inline-block', 'marginLeft': '15px'}
+            ),
+        ], style={'padding': '10px', 'backgroundColor': '#f5f5f5', 'borderRadius': '4px', 'marginBottom': '10px'}),
         
         # 选项卡容器
         dcc.Tabs(id='visualization-tabs', value='scatter', children=[
@@ -177,23 +239,7 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                         ], style={'width': '20%', 'display': 'inline-block', 'marginBottom': '8px', 'marginRight': '15px'}),
                     ], style={'marginBottom': '8px'}),
                     
-                    # 第二行：算法参数
-                    html.Div([
-                        # t-SNE参数
-                        html.Div([
-                            html.Label('t-SNE困惑度 (perplexity):'),
-                            dcc.Slider(id='tsne-perplexity', min=5, max=50, step=1, value=30, marks={5: '5', 25: '25', 50: '50'}),
-                        ], style={'width': '32%', 'display': 'inline-block', 'marginBottom': '8px', 'marginRight': '15px'}),
-                        # UMAP参数
-                        html.Div([
-                            html.Label('UMAP邻居数 (n_neighbors):'),
-                            dcc.Slider(id='umap-n-neighbors', min=5, max=50, step=1, value=15, marks={5: '5', 25: '25', 50: '50'}),
-                        ], style={'width': '32%', 'display': 'inline-block', 'marginBottom': '8px', 'marginRight': '15px'}),
-                        html.Div([
-                            html.Label('UMAP最小距离 (min_dist):'),
-                            dcc.Slider(id='umap-min-dist', min=0.01, max=1.0, step=0.01, value=0.1, marks={0.01: '0.01', 0.5: '0.5', 1.0: '1.0'}),
-                        ], style={'width': '32%', 'display': 'inline-block', 'marginBottom': '8px'}),
-                    ], style={'marginBottom': '8px'}),
+
                     
                     # 第三行：筛选条件
                     html.Div([
@@ -269,9 +315,14 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         dcc.Store(id='data-store', data={
             'df': df.to_json(orient='split'),
             'feature_cols': feature_cols,
+            'raw_feature_cols': raw_feature_cols,  # 原始128维特征列
             'cluster_col': cluster_col,
-            'image_col': image_col
+            'image_col': image_col,
+            'cluster_mode': initial_cluster_mode,  # 当前聚类模式（从元数据读取）
+            'version': 0  # 初始版本号
         }),
+        # Store for reload trigger (increments when data needs to be reloaded)
+        dcc.Store(id='reload-trigger', data=0),
         # Store for cluster metadata
         dcc.Store(id='cluster-metadata-store', data=cluster_metadata),
         # Store for hover state
@@ -350,7 +401,9 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
 
     @app.callback(
         [Output('tsne-plot', 'figure'),
-         Output('data-store', 'data')],
+         Output('data-store', 'data'),
+         Output('sample-cluster-mapping', 'data'),
+         Output('cluster-filter', 'options')],
         [Input('cluster-filter', 'value'),
          Input('unit-filter', 'value'),
          Input('part-filter', 'value'),
@@ -358,42 +411,93 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
          Input('algorithm-selector', 'value'),
          Input('dimension-selector', 'value'),
          Input('z-axis-selector', 'value'),
-         Input('tsne-perplexity', 'value'),
-         Input('umap-n-neighbors', 'value'),
-         Input('umap-min-dist', 'value')],
+
+         Input('reload-trigger', 'data')],
         State('data-store', 'data')
     )
     def update_plot(selected_clusters, selected_units, selected_parts, selected_types, 
                    selected_algorithm, selected_dimension, 
                    z_axis='dimension',
-                   tsne_perplexity=30, umap_n_neighbors=15, umap_min_dist=0.1,
+                   reload_trigger=0,
                    data_store=None):
         # 从data-store获取数据
         if data_store is None:
             raise ValueError("Data store is empty")
         
+        # 先解析当前的data_store以获取信息
+        current_feature_cols = data_store['feature_cols']
+        raw_feature_cols = data_store.get('raw_feature_cols', current_feature_cols)
+        old_cluster_mode = data_store.get('cluster_mode', 'merged')
+        
+        # 检查是否需要重新加载数据
+        ctx = dash.callback_context
+        if ctx.triggered and ctx.triggered[0]['prop_id'] == 'reload-trigger.data' and reload_trigger > 0:
+            # 重新加载CSV数据
+            print(f"触发数据重新加载 (trigger={reload_trigger})")
+            
+            # 读取新的聚类元数据以获取聚类模式
+            new_metadata = load_cluster_metadata()
+            new_cluster_mode = new_metadata.get('cluster_mode', 'merged') if new_metadata else 'merged'
+            print(f"新的聚类模式: {new_cluster_mode}")
+            
+            # 读取新的聚类表格
+            df_new = pd.read_csv(csv)
+            
+            # 重新检测列名
+            new_cluster_col, new_image_col = detect_columns(df_new)
+            if new_cluster_col is None or new_image_col is None:
+                raise RuntimeError('无法识别聚类列或图片列，请检查 CSV')
+            
+            # 添加sample_id如果不存在
+            df_new = ensure_sample_ids(df_new, new_image_col)
+            
+            # 检测原始特征列（128维）
+            exclude = {new_cluster_col, new_image_col, 'image_name', 'sample_id', 'side', 'image_id', 'sherd_id', 
+                      'unit', 'part', 'type', 'image_side', 'image_id_original', 'unit_C', 'part_C', 'type_C', 'image_path'}
+            new_raw_feature_cols = [c for c in df_new.columns if c not in exclude and np.issubdtype(df_new[c].dtype, np.number)]
+            
+            # 根据新的聚类模式重新构建样本数据
+            df_processed, new_feature_cols, _ = build_samples_for_mode(
+                df_new, new_raw_feature_cols, new_cluster_col, new_image_col, new_cluster_mode
+            )
+            
+            print(f"重新加载数据: {len(df_processed)} 条记录")
+            print(f"新的聚类数量: {df_processed[new_cluster_col].nunique()}")
+            print(f"特征维度: {len(new_feature_cols)}")
+            
+            # 重新构建data_store
+            data_store = {
+                'df': df_processed.to_json(orient='split'),
+                'feature_cols': new_feature_cols,
+                'raw_feature_cols': new_raw_feature_cols,
+                'cluster_col': new_cluster_col,
+                'image_col': new_image_col,
+                'cluster_mode': new_cluster_mode,
+                'version': reload_trigger  # 添加版本号
+            }
+        
         # 确保selected_algorithm不是None
         if selected_algorithm is None:
             selected_algorithm = 'umap'
         
-        # 解析数据
+        # 解析数据（暂时去除缓存机制以确保功能正常）
         df = pd.read_json(StringIO(data_store['df']), orient='split')
         feature_cols = data_store['feature_cols']
         cluster_col = data_store['cluster_col']
         image_col = data_store['image_col']
         
-        # 使用新的缓存机制计算降维结果
+        # 使用高效的降维计算（具有内置缓存）
         if selected_algorithm == 'tsne':
             df, reduction_key = ensure_dimensionality_reduction(df, feature_cols, 
                                                            algorithm=selected_algorithm, 
                                                            n_components=selected_dimension,
-                                                           perplexity=tsne_perplexity)
+                                                           perplexity=30)
         elif selected_algorithm == 'umap':
             df, reduction_key = ensure_dimensionality_reduction(df, feature_cols, 
                                                            algorithm=selected_algorithm, 
                                                            n_components=selected_dimension,
-                                                           n_neighbors=umap_n_neighbors,
-                                                           min_dist=umap_min_dist)
+                                                           n_neighbors=15,
+                                                           min_dist=0.1)
         else:
             df, reduction_key = ensure_dimensionality_reduction(df, feature_cols, 
                                                            algorithm=selected_algorithm, 
@@ -479,9 +583,9 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             else:
                 # 确保已经计算了3维降维结果
                 df, reduction_key_3d = ensure_dimensionality_reduction(df, feature_cols, algorithm=selected_algorithm, n_components=3,
-                                                                      perplexity=tsne_perplexity if selected_algorithm == 'tsne' else 30,
-                                                                      n_neighbors=umap_n_neighbors if selected_algorithm == 'umap' else 15,
-                                                                      min_dist=umap_min_dist if selected_algorithm == 'umap' else 0.1)
+                                                                      perplexity=30 if selected_algorithm == 'tsne' else None,
+                                                                      n_neighbors=15 if selected_algorithm == 'umap' else None,
+                                                                      min_dist=0.1 if selected_algorithm == 'umap' else None)
                 dff = df.copy()
                 
                 # 重新应用筛选条件
@@ -511,9 +615,9 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         
         # 为当前算法和参数组合保存参数
         if selected_algorithm == 'tsne':
-            params[reduction_key] = {'perplexity': tsne_perplexity}
+            params[reduction_key] = {'perplexity': 30}
         elif selected_algorithm == 'umap':
-            params[reduction_key] = {'n_neighbors': umap_n_neighbors, 'min_dist': umap_min_dist}
+            params[reduction_key] = {'n_neighbors': 15, 'min_dist': 0.1}
         elif selected_algorithm == 'pca':
             params[reduction_key] = {}
         
@@ -526,7 +630,14 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             'params': params
         }
         
-        return fig, updated_data_store
+        # 更新sample-cluster-mapping
+        sample_cluster_mapping = df.set_index('sample_id')[cluster_col].to_dict()
+        
+        # 更新cluster-filter的选项
+        clusters = sorted(df[cluster_col].dropna().unique())
+        cluster_options = [{'label': str(int(c)), 'value': int(c)} for c in clusters]
+        
+        return fig, updated_data_store, sample_cluster_mapping, cluster_options
 
 
     @app.callback(
@@ -681,6 +792,125 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
 
 
     PAGE_SIZE = 20
+
+
+
+    # 重新聚类回调
+    @app.callback(
+        [Output('recluster-status', 'children'),
+         Output('reload-trigger', 'data')],
+        Input('recluster-button', 'n_clicks'),
+        [State('n-clusters-input', 'value'),
+         State('cluster-mode-selector', 'value'),
+         State('reload-trigger', 'data')]
+    )
+    def perform_reclustering(n_clicks, n_clusters, cluster_mode, current_trigger):
+        if n_clicks == 0 or n_clicks is None:
+            return '', dash.no_update
+        
+        try:
+            # 调用聚类函数
+            clustering_result = perform_kmeans_clustering(
+                features_csv_path=FEATURES_CSV,
+                n_clusters=n_clusters,
+                cluster_mode=cluster_mode
+            )
+            
+            # 提取结果
+            labels = clustering_result['labels']
+            cluster_centers = clustering_result['cluster_centers']
+            piece_ids = clustering_result['piece_ids']
+            silhouette_avg = clustering_result['silhouette_score']
+            selected_df = clustering_result['selected_df']  # 包含 filename 和 main_id 的 DataFrame
+            
+            # 保存聚类结果到文件（类似 kmeans_DINO.py 的输出）
+            import json
+            from pathlib import Path
+            import shutil
+            
+            output_dir = Path(__file__).parent / 'all_kmeans_new'
+            
+            # 清空旧的聚类目录
+            if output_dir.exists():
+                shutil.rmtree(output_dir)
+            output_dir.mkdir(exist_ok=True)
+            
+            # 保存元数据（包含聚类模式）
+            metadata = {
+                'n_clusters': int(clustering_result['n_clusters']),
+                'cluster_centers': cluster_centers.tolist(),
+                'silhouette_score': float(silhouette_avg),
+                'cluster_mode': cluster_mode  # 保存聚类模式
+            }
+            
+            with open(output_dir / 'cluster_metadata.json', 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2, ensure_ascii=False)
+            
+            # 创建 piece_id -> cluster 映射
+            piece_to_cluster = {pid: int(label) for pid, label in zip(piece_ids, labels)}
+            
+            # 为每个聚类创建目录并复制图片
+            image_root = Path(__file__).parent / 'all_cutouts'
+            cluster_file_map = {}  # filename -> cluster_id
+            
+            for idx, row in selected_df.iterrows():
+                main_id = row['main_id']
+                filename = row['filename']
+                
+                if main_id not in piece_to_cluster:
+                    continue
+                
+                cluster_id = piece_to_cluster[main_id]
+                cluster_dir = output_dir / f'cluster_{cluster_id}'
+                cluster_dir.mkdir(exist_ok=True)
+                
+                # 复制图片文件
+                src_path = image_root / filename
+                if src_path.exists():
+                    dst_path = cluster_dir / filename
+                    shutil.copy2(src_path, dst_path)
+                    cluster_file_map[filename] = cluster_id
+            
+            print(f"已复制 {len(cluster_file_map)} 个图片文件到聚类目录")
+            
+            # 重新运行 build_table.py 的逻辑来生成表格
+            import subprocess
+            result = subprocess.run(
+                [str(Path(__file__).parent / 'venv' / 'Scripts' / 'python.exe'), 
+                 str(Path(__file__).parent / 'build_table.py')],
+                capture_output=True,
+                text=True,
+                cwd=str(Path(__file__).parent)
+            )
+            
+            if result.returncode != 0:
+                print(f"build_table.py 执行失败: {result.stderr}")
+                raise RuntimeError(f"重新生成表格失败: {result.stderr}")
+            
+            print(f"build_table.py 执行成功: {result.stdout}")
+            
+            # 聚类模式中文名称
+            mode_names = {'merged': '融合', 'exterior': '仅外部', 'interior': '仅内部'}
+            mode_display = mode_names.get(cluster_mode, cluster_mode)
+            
+            status = f'✓ 聚类完成! 模式={mode_display}, K={clustering_result["n_clusters"]}, 轮廓系数={silhouette_avg:.3f}'
+            
+            success_msg = html.Div([
+                html.Span(status, style={'color': 'green', 'fontWeight': 'bold'}),
+                html.Br(),
+                html.Span('数据已自动重新加载，新的聚类结果现在可见。', style={'marginTop': '10px', 'color': '#28a745'})
+            ])
+            
+            # 触发数据重新加载
+            new_trigger = (current_trigger or 0) + 1
+            return success_msg, new_trigger
+            
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"聚类错误: {error_details}")
+            error_msg = html.Div(f'✗ 聚类失败: {str(e)}', style={'color': 'red', 'fontWeight': 'bold'})
+            return error_msg, dash.no_update
 
     @app.callback(
         Output('cluster-panel', 'children'),
