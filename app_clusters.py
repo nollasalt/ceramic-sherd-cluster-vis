@@ -1,11 +1,13 @@
 """
 陶片聚类交互可视化应用
 使用 Dash 构建的 Web 应用，支持降维可视化、聚类浏览等功能
+版本: 1.2.0 (优化版)
 """
 
 from io import StringIO
 from pathlib import Path
 import os
+import time
 
 import pandas as pd
 import numpy as np
@@ -31,15 +33,55 @@ from data_processing import (
     DEFAULT_IMAGE_ROOT,
 )
 
+# 导入优化模块
+try:
+    from performance_utils import (
+        timing_decorator, cache_plot_result, optimize_dataframe,
+        batch_process_images, plot_cache, image_cache
+    )
+    OPTIMIZATIONS_ENABLED = True
+except ImportError:
+    OPTIMIZATIONS_ENABLED = False
+    # 定义占位装饰器
+    def timing_decorator(func): return func
+    def cache_plot_result(func): return func
+    def optimize_dataframe(df): return df
+
 # 配置常量
 CSV = DEFAULT_CSV
 IMAGE_ROOT = DEFAULT_IMAGE_ROOT
 FEATURES_CSV = Path(__file__).parent / 'all_features_dinov3.csv'
 TABLE_CSV = Path(__file__).parent / 'sherd_cluster_table_clustered_only.csv'
 
-# 生成足够多的不同颜色用于聚类显示（支持最多50个聚类）
+# 应用配置
+APP_CONFIG = {
+    'title': '陶片聚类交互可视化',
+    'port': 9000,
+    'host': '127.0.0.1',
+    'debug': False,
+    'max_clusters': 50,
+    'default_thumbnail_size': 80
+}
+
+# UI文本常量
+UI_TEXT = {
+    'loading': '加载中...',
+    'error_no_data': '❌ 没有可用数据',
+    'error_invalid_clusters': '❌ 请输入有效的聚类数量 (2-50)',
+    'success_reclustering': '✅ 重新聚类完成',
+    'click_to_view': '点击散点图中的点来查看聚类详情',
+    'cluster_info': '聚类 {}: {} 个样本',
+    'sample_details': '样本详情: {}'
+}
+
+# 颜色缓存
+_color_cache = {}
+
 def generate_distinct_colors(n_colors):
-    """生成 n 个视觉上不同的颜色"""
+    """生成 n 个视觉上不同的颜色（带缓存）"""
+    if n_colors in _color_cache:
+        return _color_cache[n_colors]
+    
     # 组合多个 Plotly 调色板以获得足够多的颜色
     base_colors = (
         px.colors.qualitative.Plotly +      # 10 colors
@@ -48,6 +90,15 @@ def generate_distinct_colors(n_colors):
         px.colors.qualitative.T10 +         # 10 colors
         px.colors.qualitative.Alphabet      # 26 colors
     )
+    
+    # 如果需要的颜色数超过可用颜色数，则循环使用
+    colors = []
+    for i in range(n_colors):
+        colors.append(base_colors[i % len(base_colors)])
+    
+    # 缓存结果
+    _color_cache[n_colors] = colors
+    return colors
     # 去重并返回所需数量
     seen = set()
     unique_colors = []
@@ -219,7 +270,10 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         # 添加 Location 组件用于页面重定向
         dcc.Location(id='url', refresh=True),
         
-        html.H3('陶片聚类交互可视化'),
+        html.Div([
+            html.H3('陶片聚类交互可视化 v1.2', style={'display': 'inline-block', 'marginRight': '20px'}),
+            html.Div()  # 占位符
+        ]),
         
         # 聚类控制面板
         html.Div([
@@ -1432,9 +1486,41 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             print(f"❌ 加载原图失败: {e}")
             return dash.no_update
 
+    # 性能监控回调已移除
+    
     return app
 
 
+def main():
+    """主函数 - 应用入口点"""
+    try:
+        # 从环境变量获取配置
+        port = int(os.environ.get('CERAMIC_PORT', APP_CONFIG['port']))
+        debug = os.environ.get('CERAMIC_DEBUG', 'false').lower() == 'true'
+        
+        print(f"🚀 启动 {APP_CONFIG['title']}...")
+        print(f"📊 正在加载数据...")
+        
+        app = create_app()
+        
+        print(f"✅ 应用已准备就绪!")
+        print(f"🌐 访问地址: http://127.0.0.1:{port}")
+        print(f"💡 提示: 按 Ctrl+C 停止服务")
+        
+        # 运行应用
+        app.run(
+            debug=debug, 
+            port=port, 
+            host='127.0.0.1'
+        )
+        
+    except FileNotFoundError as e:
+        print(f"❌ 文件未找到: {e}")
+        print("请确保数据文件存在于正确的位置")
+    except Exception as e:
+        print(f"❌ 应用启动失败: {e}")
+        print("请检查配置和依赖项")
+        raise
+
 if __name__ == '__main__':
-    app = create_app()
-    app.run(debug=False, port=9000, host='127.0.0.1')
+    main()
