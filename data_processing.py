@@ -145,6 +145,8 @@ def build_samples_for_mode(df, feature_cols, cluster_col, image_col, cluster_mod
         row = group.iloc[0].to_dict()
         row['sample_id'] = sample_id
         row['image_name'] = str(group.iloc[0][img_name_col])
+        # 为单面模式添加paired_images列，只包含该单面的图像
+        row['paired_images'] = str(group.iloc[0][img_name_col])
         rows.append(row)
     
     result_df = pd.DataFrame(rows)
@@ -432,6 +434,42 @@ def img_to_base64(path, max_size=400):
         im.thumbnail((max_size, max_size))
         buf = io.BytesIO()
         im.save(buf, format='PNG')
+        data = base64.b64encode(buf.getvalue()).decode('ascii')
+        return f'data:image/png;base64,{data}'
+    except Exception:
+        return None
+
+
+def img_to_base64_full(path, max_size=1200):
+    """将图像转换为 base64 编码的 data URI (原图质量)
+    
+    Args:
+        path: 图像文件路径
+        max_size: 原图最大尺寸（更大以保持细节）
+        
+    Returns:
+        str: base64 编码的 data URI，失败时返回 None
+    """
+    try:
+        im = Image.open(path).convert('RGBA')
+        
+        # 将接近白色的像素设为透明
+        try:
+            arr = np.array(im)
+            if arr.shape[2] == 4:
+                r, g, b, a = np.split(arr, 4, axis=2)
+                mask = (np.squeeze(r) > 245) & (np.squeeze(g) > 245) & (np.squeeze(b) > 245)
+                arr[mask, 3] = 0
+                im = Image.fromarray(arr)
+        except Exception:
+            pass
+
+        # 保持较高分辨率的原图
+        if max_size > 0:
+            im.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+        
+        buf = io.BytesIO()
+        im.save(buf, format='PNG', optimize=True)
         data = base64.b64encode(buf.getvalue()).decode('ascii')
         return f'data:image/png;base64,{data}'
     except Exception:

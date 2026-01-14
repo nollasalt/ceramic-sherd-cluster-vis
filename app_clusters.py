@@ -5,6 +5,7 @@
 
 from io import StringIO
 from pathlib import Path
+import os
 
 import pandas as pd
 import numpy as np
@@ -24,6 +25,7 @@ from data_processing import (
     create_cluster_pattern_heatmap,
     create_cluster_similarity_matrix,
     img_to_base64,
+    img_to_base64_full,  # 导入原图函数
     perform_kmeans_clustering,
     DEFAULT_CSV,
     DEFAULT_IMAGE_ROOT,
@@ -120,6 +122,43 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
     df, _ = ensure_dimensionality_reduction(df, feature_cols, algorithm='umap', n_components=3)
 
     app = dash.Dash(__name__)
+
+    # 添加Flask路由来提供原图
+    @app.server.route('/get_full_image/<path:filename>')
+    def get_full_image(filename):
+        """动态提供原图"""
+        from flask import jsonify
+        try:
+            print(f"正在查找图片: {filename}")  # 调试日志
+            
+            # 在所有可能的目录中查找图片
+            search_paths = [
+                IMAGE_ROOT,  # 使用已定义的IMAGE_ROOT常量
+                Path(__file__).parent / "all_cutouts",
+                Path(__file__).parent / "all_kmeans_new"
+            ]
+            
+            for search_path in search_paths:
+                if Path(search_path).exists():
+                    print(f"搜索路径: {search_path}")  # 调试日志
+                    # 在该目录及其子目录中查找文件
+                    for root, dirs, files in os.walk(search_path):
+                        if filename in files:
+                            filepath = Path(root) / filename
+                            print(f"找到图片: {filepath}")  # 调试日志
+                            # 生成高分辨率图片
+                            full_image_b64 = img_to_base64_full(filepath)
+                            if full_image_b64:
+                                print(f"图片编码成功")  # 调试日志
+                                return jsonify({'status': 'success', 'image': full_image_b64})
+                            else:
+                                print(f"图片编码失败")  # 调试日志
+            
+            print(f"图片未找到: {filename}")  # 调试日志
+            return jsonify({'status': 'error', 'message': 'Image not found'}), 404
+        except Exception as e:
+            print(f"Flask路由错误: {e}")  # 调试日志
+            return jsonify({'status': 'error', 'message': str(e)}), 500
 
     clusters = sorted(df[cluster_col].unique())
 
@@ -327,9 +366,321 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         # Store for hover state
         dcc.Store(id='hover-state', data={'hovered_cluster': None}),
         # Store for sample_id to cluster_id mapping (for fast hover lookup)
-        dcc.Store(id='sample-cluster-mapping', data=df.set_index('sample_id')[cluster_col].to_dict())
+        dcc.Store(id='sample-cluster-mapping', data=df.set_index('sample_id')[cluster_col].to_dict()),
+        
+        # 图片放大模态框
+        html.Div(id='image-modal', style={
+            'display': 'none',
+            'position': 'fixed',
+            'top': 0,
+            'left': 0,
+            'width': '100%',
+            'height': '100%',
+            'backgroundColor': 'rgba(0, 0, 0, 0.9)',
+            'zIndex': 9999,
+            'cursor': 'pointer'
+        }, children=[
+            # 控制按钮栏
+            html.Div(style={
+                'position': 'absolute',
+                'top': '20px',
+                'right': '20px',
+                'zIndex': 10000,
+                'display': 'flex',
+                'gap': '10px'
+            }, children=[
+                html.Button('放大', id='zoom-in-btn', style={
+                    'backgroundColor': 'rgba(255, 255, 255, 0.8)',
+                    'border': 'none',
+                    'padding': '8px 12px',
+                    'borderRadius': '4px',
+                    'cursor': 'pointer',
+                    'fontSize': '14px'
+                }),
+                html.Button('缩小', id='zoom-out-btn', style={
+                    'backgroundColor': 'rgba(255, 255, 255, 0.8)',
+                    'border': 'none',
+                    'padding': '8px 12px',
+                    'borderRadius': '4px',
+                    'cursor': 'pointer',
+                    'fontSize': '14px'
+                }),
+                html.Button('左转', id='rotate-left-btn', style={
+                    'backgroundColor': 'rgba(255, 255, 255, 0.8)',
+                    'border': 'none',
+                    'padding': '8px 12px',
+                    'borderRadius': '4px',
+                    'cursor': 'pointer',
+                    'fontSize': '14px'
+                }),
+                html.Button('右转', id='rotate-right-btn', style={
+                    'backgroundColor': 'rgba(255, 255, 255, 0.8)',
+                    'border': 'none',
+                    'padding': '8px 12px',
+                    'borderRadius': '4px',
+                    'cursor': 'pointer',
+                    'fontSize': '14px'
+                }),
+                html.Button('重置', id='reset-btn', style={
+                    'backgroundColor': 'rgba(255, 255, 255, 0.8)',
+                    'border': 'none',
+                    'padding': '8px 12px',
+                    'borderRadius': '4px',
+                    'cursor': 'pointer',
+                    'fontSize': '14px'
+                }),
+                html.Button('关闭', id='close-modal-btn', style={
+                    'backgroundColor': 'rgba(255, 0, 0, 0.8)',
+                    'color': 'white',
+                    'border': 'none',
+                    'padding': '8px 12px',
+                    'borderRadius': '4px',
+                    'cursor': 'pointer',
+                    'fontSize': '14px'
+                })
+            ]),
+            
+            # 图片容器
+            html.Div(style={
+                'position': 'absolute',
+                'top': '0',
+                'left': '0',
+                'width': '100%',
+                'height': '100%',
+                'display': 'flex',
+                'alignItems': 'center',
+                'justifyContent': 'center',
+                'overflow': 'visible'  # 允许图片超出容器
+            }, children=[
+                html.Img(id='modal-image', style={
+                    'maxWidth': '80vw',  # 初始最大宽度
+                    'maxHeight': '80vh', # 初始最大高度
+                    'border': '2px solid white',
+                    'borderRadius': '4px',
+                    'cursor': 'move',
+                    'transition': 'transform 0.2s ease',
+                    'transformOrigin': 'center center',
+                    'position': 'relative',
+                    'zIndex': 1
+                }),
+            ]),
+            
+            # 帮助文本
+            html.Div(style={
+                'position': 'absolute',
+                'bottom': '20px',
+                'left': '50%',
+                'transform': 'translateX(-50%)',
+                'color': 'white',
+                'fontSize': '14px',
+                'textAlign': 'center'
+            }, children=[
+                html.Div('拖拽移动图片 | 滚轮缩放 | ESC键关闭', style={'opacity': '0.8'})
+            ])
+        ]),
+        
+        # 隐藏的触发器，用于客户端回调
+        html.Div(id='image-click-trigger', style={'display': 'none'}),
+        html.Div(id='modal-close-trigger', style={'display': 'none'}),
+        
+        # 隐藏的输入框用于传递图片路径
+        dcc.Input(id='image-path-input', type='text', value='', style={'display': 'none'})
     ], style={'margin': '8px', 'padding': '0'})
 
+    # 客户端回调：处理图片点击显示模态框
+    app.clientside_callback(
+        """
+        function(n1, n2) {
+            console.log('=== CLIENTSIDE CALLBACK LOADED ===');
+            
+            // 图片变换状态
+            let imageTransform = {
+                scale: 1,
+                rotation: 0,
+                translateX: 0,
+                translateY: 0
+            };
+            
+            let isDragging = false;
+            let lastX = 0;
+            let lastY = 0;
+            
+            function updateImageTransform() {
+                const modalImg = document.getElementById('modal-image');
+                if (modalImg) {
+                    // 只使用 transform 属性进行变换，不改变图片的基础尺寸
+                    modalImg.style.transform = `scale(${imageTransform.scale}) rotate(${imageTransform.rotation}deg) translate(${imageTransform.translateX}px, ${imageTransform.translateY}px)`;
+                }
+            }
+            
+            function resetImageTransform() {
+                imageTransform = {scale: 1, rotation: 0, translateX: 0, translateY: 0};
+                updateImageTransform();
+            }
+            
+            // 添加全局事件监听器
+            if (!window.imageModalInitialized) {
+                console.log('=== INITIALIZING IMAGE MODAL ===');
+                
+                document.addEventListener('click', function(e) {
+                    console.log('=== CLICK DETECTED ===', e.target.tagName, e.target.id);
+                    
+                    // 阻止按钮点击事件冒泡
+                    if (e.target.id && (e.target.id.includes('btn') || e.target.id === 'close-modal-btn')) {
+                        e.stopPropagation();
+                        
+                        if (e.target.id === 'zoom-in-btn') {
+                            imageTransform.scale *= 1.2;
+                            updateImageTransform();
+                        } else if (e.target.id === 'zoom-out-btn') {
+                            imageTransform.scale /= 1.2;
+                            if (imageTransform.scale < 0.1) imageTransform.scale = 0.1;
+                            updateImageTransform();
+                        } else if (e.target.id === 'rotate-left-btn') {
+                            imageTransform.rotation -= 90;
+                            updateImageTransform();
+                        } else if (e.target.id === 'rotate-right-btn') {
+                            imageTransform.rotation += 90;
+                            updateImageTransform();
+                        } else if (e.target.id === 'reset-btn') {
+                            resetImageTransform();
+                        } else if (e.target.id === 'close-modal-btn') {
+                            document.getElementById('image-modal').style.display = 'none';
+                        }
+                        return;
+                    }
+                    
+                    // 处理模态框关闭（点击背景）
+                    if (e.target.id === 'image-modal') {
+                        console.log('=== CLOSING MODAL (BACKDROP) ===');
+                        document.getElementById('image-modal').style.display = 'none';
+                        resetImageTransform();
+                        return;
+                    }
+                    
+                    // 处理图片点击打开模态框
+                    if (e.target.tagName === 'IMG' && e.target.src && e.target.src.startsWith('data:image/')) {
+                        // 排除模态框内的图片
+                        if (e.target.id === 'modal-image') return;
+                        
+                        console.log('=== IMAGE CLICKED ===');
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        const modal = document.getElementById('image-modal');
+                        const modalImg = document.getElementById('modal-image');
+                        
+                        if (modal && modalImg) {
+                            // 获取原始图片路径和原图数据
+                            const imagePath = e.target.getAttribute('data-image-path');
+                            const fullImageData = e.target.getAttribute('data-full-src');
+                            console.log('=== IMAGE PATH ===', imagePath);
+                            console.log('=== HAS FULL IMAGE DATA ===', fullImageData ? 'YES' : 'NO');
+                            
+                            if (fullImageData) {
+                                // 使用嵌入的原图数据
+                                modalImg.src = fullImageData;
+                                console.log('=== USING EMBEDDED FULL IMAGE ===', fullImageData.substring(0, 50));
+                            } else if (imagePath) {
+                                // 对于侧栏缩略图，动态请求原图
+                                console.log('=== REQUESTING FULL IMAGE FOR ===', imagePath);
+                                
+                                // 先显示缩略图
+                                modalImg.src = e.target.src;
+                                
+                                // 异步请求原图
+                                fetch(`/get_full_image/${encodeURIComponent(imagePath)}`)
+                                    .then(response => response.json())
+                                    .then(data => {
+                                        if (data.status === 'success' && data.image) {
+                                            modalImg.src = data.image;
+                                            console.log('=== FULL IMAGE LOADED ===');
+                                        } else {
+                                            console.log('=== FULL IMAGE REQUEST FAILED ===', data.message);
+                                        }
+                                    })
+                                    .catch(error => {
+                                        console.log('=== FULL IMAGE REQUEST ERROR ===', error);
+                                    });
+                            } else {
+                                // 如果没有路径信息，直接使用缩略图
+                                modalImg.src = e.target.src;
+                            }
+                            
+                            modal.style.display = 'block';
+                            resetImageTransform(); // 重置变换状态
+                            console.log('=== MODAL OPENED ===');
+                        }
+                    }
+                });
+                
+                // 图片拖拽功能
+                document.addEventListener('mousedown', function(e) {
+                    if (e.target.id === 'modal-image') {
+                        isDragging = true;
+                        lastX = e.clientX;
+                        lastY = e.clientY;
+                        e.preventDefault();
+                    }
+                });
+                
+                document.addEventListener('mousemove', function(e) {
+                    if (isDragging) {
+                        const deltaX = e.clientX - lastX;
+                        const deltaY = e.clientY - lastY;
+                        
+                        imageTransform.translateX += deltaX / imageTransform.scale;
+                        imageTransform.translateY += deltaY / imageTransform.scale;
+                        
+                        updateImageTransform();
+                        
+                        lastX = e.clientX;
+                        lastY = e.clientY;
+                    }
+                });
+                
+                document.addEventListener('mouseup', function(e) {
+                    isDragging = false;
+                });
+                
+                // 滚轮缩放功能
+                document.addEventListener('wheel', function(e) {
+                    if (e.target.id === 'modal-image' || e.target.closest('#image-modal')) {
+                        e.preventDefault();
+                        
+                        const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+                        imageTransform.scale *= zoomFactor;
+                        
+                        if (imageTransform.scale < 0.1) imageTransform.scale = 0.1;
+                        if (imageTransform.scale > 10) imageTransform.scale = 10;
+                        
+                        updateImageTransform();
+                    }
+                });
+                
+                // ESC键关闭模态框
+                document.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape') {
+                        console.log('=== CLOSING MODAL (ESC) ===');
+                        const modal = document.getElementById('image-modal');
+                        if (modal && modal.style.display === 'block') {
+                            modal.style.display = 'none';
+                            resetImageTransform();
+                        }
+                    }
+                });
+                
+                window.imageModalInitialized = true;
+                console.log('=== IMAGE MODAL INITIALIZED ===');
+            }
+            
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output('image-click-trigger', 'children'),
+        [Input('sample-panel', 'children'),
+         Input('cluster-panel', 'children')]
+    )
 
     # 动态更新筛选器选项的回调
     @app.callback(
@@ -707,15 +1058,28 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
 
         base_dir = Path(row[image_col]).parent
         sample_imgs = []
-        for nm in paired_names:
+        for i, nm in enumerate(paired_names):
             ipath = base_dir / nm
             if not ipath.exists():
                 cand = image_root / Path(nm).name
                 if cand.exists():
                     ipath = cand
             b64 = img_to_base64(ipath)
+            b64_full = img_to_base64_full(ipath)  # 同时生成原图
             if b64:
-                sample_imgs.append(html.Img(src=b64, style={'height': '200px', 'border': '1px solid #ccc', 'margin-right': '6px'}))
+                sample_imgs.append(html.Img(
+                    src=b64, 
+                    id=f'sample-img-{i}',
+                    **{'data-image-path': str(Path(nm).name)},  # 添加原始图片路径
+                    **{'data-full-src': b64_full if b64_full else b64},  # 添加原图数据
+                    style={
+                        'height': '200px', 
+                        'border': '1px solid #ccc', 
+                        'margin-right': '6px',
+                        'cursor': 'pointer'
+                    },
+                    title='点击放大查看'
+                ))
 
         if len(sample_imgs) == 0:
             sample_imgs = [html.Div('未找到正反面图片')]
@@ -924,10 +1288,22 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         start = (page - 1) * PAGE_SIZE
         end = min(start + PAGE_SIZE, total)
         thumbs = []
-        for pth in image_paths[start:end]:
+        for i, pth in enumerate(image_paths[start:end]):
             b64 = img_to_base64(Path(pth), max_size=180)
+            # 侧栏缩略图不预加载原图，点击时再动态加载
             if b64:
-                thumbs.append(html.Img(src=b64, style={'height': '120px', 'margin': '4px', 'border': '1px solid #ccc'}))
+                thumbs.append(html.Img(
+                    src=b64, 
+                    id=f'cluster-img-{start + i}',
+                    **{'data-image-path': Path(pth).name},  # 只添加路径信息
+                    style={
+                        'height': '120px', 
+                        'margin': '4px', 
+                        'border': '1px solid #ccc',
+                        'cursor': 'pointer'
+                    },
+                    title='点击放大查看'
+                ))
             else:
                 thumbs.append(html.Div(str(Path(pth).name)))
         grid = html.Div(thumbs, style={'display': 'flex', 'flexWrap': 'wrap'})
@@ -1030,6 +1406,31 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             return dcc.Graph(figure=fig)
         except Exception as e:
             return html.Div(f'生成相似度矩阵时出错: {str(e)}')
+
+    # 添加原图加载回调
+    @app.callback(
+        Output('modal-image', 'src'),
+        [Input('image-path-input', 'value')],
+        prevent_initial_call=True
+    )
+    def load_full_image(image_path):
+        """加载原图用于模态框显示"""
+        if not image_path or image_path == '':
+            return dash.no_update
+        
+        try:
+            # 构建完整的图片路径
+            full_path = Path(IMAGE_ROOT) / image_path
+            if full_path.exists():
+                full_res_image = img_to_base64_full(str(full_path))
+                print(f"✅ 加载原图成功: {image_path}")
+                return full_res_image
+            else:
+                print(f"❌ 图片文件不存在: {full_path}")
+            return dash.no_update
+        except Exception as e:
+            print(f"❌ 加载原图失败: {e}")
+            return dash.no_update
 
     return app
 
