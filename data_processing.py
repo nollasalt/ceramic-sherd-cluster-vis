@@ -14,6 +14,7 @@ from PIL import Image
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import SpectralClustering
 import plotly.express as px
 
 try:
@@ -32,203 +33,385 @@ DEFAULT_CLUSTER_METADATA_PATH = Path('all_kmeans_new/cluster_metadata.json')
 
 
 # ============================================
-# 元数据加载
+# 元数据与基础工具
 # ============================================
-def load_cluster_metadata(meta_path=None):
-    """加载聚类元数据
-    
-    Args:
-        meta_path: 元数据文件路径，默认为 all_kmeans_new/cluster_metadata.json
-        
-    Returns:
-        dict: 聚类元数据，如果文件不存在则返回 None
-    """
-    if meta_path is None:
-        meta_path = DEFAULT_CLUSTER_METADATA_PATH
-    meta_path = Path(meta_path)
-    
-    if meta_path.exists():
-        with open(meta_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+def load_cluster_metadata(path: Path = DEFAULT_CLUSTER_METADATA_PATH):
+    """加载聚类元数据，不存在则返回 None"""
+    try:
+        if path.exists():
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception as exc:  # 读文件失败时打印并返回 None
+        print(f"读取聚类元数据失败: {exc}")
     return None
 
 
-# ============================================
-# 列检测与样本ID处理
-# ============================================
-def detect_columns(df):
-    """自动检测 DataFrame 中的聚类列和图像列
-    
-    Args:
-        df: pandas DataFrame
-        
-    Returns:
-        tuple: (cluster_col, image_col) 列名
-    """
-    cluster_col = None
-    image_col = None
-    for c in df.columns:
-        if 'cluster' in c.lower() and df[c].nunique() > 1:
-            cluster_col = c
-        if 'image' in c.lower() and ('path' in c.lower() or 'name' in c.lower() or 'file' in c.lower()):
-            image_col = c
+def detect_columns(df: pd.DataFrame):
+    """简单检测聚类列与图片列"""
+    cluster_candidates = [
+        c for c in df.columns
+        if 'cluster' in c.lower() or c.lower() in {'label', 'k'}
+    ]
+    image_candidates = [
+        c for c in df.columns
+        if any(k in c.lower() for k in ['image', 'file', 'path', 'filename'])
+    ]
+    cluster_col = cluster_candidates[0] if cluster_candidates else None
+    image_col = image_candidates[0] if image_candidates else None
     return cluster_col, image_col
 
 
-def ensure_sample_ids(df, image_col):
-    """确保 DataFrame 中存在 sample_id 列，如果不存在则从文件名派生
-    
-    Args:
-        df: pandas DataFrame
-        image_col: 图像列名
-        
-    Returns:
-        DataFrame: 包含 sample_id 列的 DataFrame
-    """
-    if 'sample_id' in df.columns:
-        return df
-
-    def _derive_sample_id(val):
-        name = Path(str(val)).stem
-        return name.replace('_exterior', '').replace('_interior', '').split('_')[0]
-
-    df = df.copy()
-    df['sample_id'] = df[image_col].apply(_derive_sample_id)
+def ensure_sample_ids(df: pd.DataFrame, image_col: str):
+    """确保 sample_id 列存在，缺失则用文件名 stem 生成"""
+    if 'sample_id' not in df.columns:
+        df = df.copy()
+        df['sample_id'] = df[image_col].apply(lambda x: Path(str(x)).stem)
     return df
 
 
+def build_fused_samples(df: pd.DataFrame, feature_cols, cluster_col, image_col):
+    """占位实现：直接返回原数据与特征列"""
+    return df.copy(), list(feature_cols), []
+
+
+def build_samples_for_mode(df: pd.DataFrame, raw_feature_cols, cluster_col, image_col, cluster_mode='merged'):
+    """按模式准备样本。本简化版直接返回原数据与特征列。"""
+    df = ensure_sample_ids(df, image_col)
+    feature_cols = list(raw_feature_cols)
+    dropped_samples = []
+    return df, feature_cols, dropped_samples
+
+
+def create_cluster_pattern_heatmap(cluster_centers, feature_names=None):
+    """基于聚类中心生成热力图"""
+    feature_names = feature_names or [f"f{i}" for i in range(cluster_centers.shape[1])]
+    fig = px.imshow(cluster_centers, labels=dict(x="feature", y="cluster"), x=feature_names, color_continuous_scale='Viridis')
+    return fig
+
+
+def create_cluster_similarity_matrix(cluster_centers):
+    """基于聚类中心余弦相似度的矩阵"""
+    if cluster_centers.size == 0:
+        return px.imshow([[0]])
+    norm = np.linalg.norm(cluster_centers, axis=1, keepdims=True) + 1e-8
+    normalized = cluster_centers / norm
+    sim = normalized @ normalized.T
+    fig = px.imshow(sim, labels=dict(x="cluster", y="cluster"), color_continuous_scale='RdBu')
+    return fig
+
+
+def _encode_image(image_path: Path, max_size=256):
+    if not image_path or not Path(image_path).exists():
+        return None
+    try:
+        with Image.open(image_path) as img:
+            img = img.convert('RGB')
+            if max(img.size) > max_size:
+                scale = max_size / max(img.size)
+                new_size = (int(img.size[0] * scale), int(img.size[1] * scale))
+                img = img.resize(new_size)
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG')
+            b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+            return f"data:image/jpeg;base64,{b64}"
+    except Exception as exc:
+        print(f"编码图片失败 {image_path}: {exc}")
+        return None
+
+
+def img_to_base64(image_path, max_size=256):
+    return _encode_image(Path(image_path), max_size=max_size)
+
+
+def img_to_base64_full(image_path):
+    return _encode_image(Path(image_path), max_size=1024)
+
+
 # ============================================
-# 按模式构建样本数据
+# 聚类功能
 # ============================================
-def build_samples_for_mode(df, feature_cols, cluster_col, image_col, cluster_mode='merged'):
-    """根据聚类模式构建用于可视化的样本数据
-    
-    Args:
-        df: pandas DataFrame，包含特征和元数据
-        feature_cols: 原始特征列名列表（128维）
-        cluster_col: 聚类列名
-        image_col: 图像列名
-        cluster_mode: 聚类模式 ('merged', 'exterior', 'interior')
-        
-    Returns:
-        tuple: (result_df, result_feature_cols, dropped_samples)
-    """
+def _prepare_clustering_data(features_csv_path, cluster_mode='merged'):
+    """加载特征并按聚类模式准备特征矩阵"""
+    # 读取特征
+    df = pd.read_csv(features_csv_path).copy()
+
+    if "filename" not in df.columns:
+        raise ValueError("CSV 中必须包含 'filename' 列")
+
+    print(f"读取 {len(df)} 条特征记录")
+    print(f"聚类模式: {cluster_mode}")
+
+    # 获取主编号
+    def get_piece_id(filename):
+        name = Path(filename).stem
+        name = name.replace("_exterior", "").replace("_interior", "")
+        return name.lower()
+
+    df["main_id"] = df["filename"].apply(get_piece_id)
+
+    # 特征列
+    feature_cols = [c for c in df.columns if c not in ["filename", "main_id"]]
+
     if cluster_mode == 'merged':
-        # 融合模式：使用 build_fused_samples
-        return build_fused_samples(df, feature_cols, cluster_col, image_col)
-    
-    # 单面模式：筛选对应的图像
-    if cluster_mode == 'exterior':
-        filter_keyword = 'exterior'
-    elif cluster_mode == 'interior':
-        filter_keyword = 'interior'
+        # 融合模式：每个 main_id 需要正反面两张图像
+        selected_list = []
+        for main_id, group in df.groupby("main_id"):
+            if len(group) >= 2:
+                result = group.iloc[:2].copy()
+                result['main_id'] = main_id
+                selected_list.append(result)
+
+        if len(selected_list) == 0:
+            raise ValueError("过滤后没有符合条件的陶片（需要至少有正反面两张图片）")
+
+        selected_df = pd.concat(selected_list, ignore_index=True)
+        unique_pieces = selected_df['main_id'].unique()
+        print(f"过滤后剩余陶片数: {len(unique_pieces)}")
+
+        # 分别提取 exterior 和 interior 特征
+        exterior_features_list = []
+        interior_features_list = []
+        piece_ids_list = []
+
+        for main_id, group in selected_df.groupby("main_id"):
+            if len(group) < 2:
+                continue
+            # 按文件名排序，确保顺序一致（exterior 字母序在 interior 之前）
+            group_sorted = group.sort_values('filename')
+            vec1 = group_sorted.iloc[0][feature_cols].values  # exterior
+            vec2 = group_sorted.iloc[1][feature_cols].values  # interior
+            exterior_features_list.append(vec1)
+            interior_features_list.append(vec2)
+            piece_ids_list.append(main_id)
+
+        if len(exterior_features_list) == 0:
+            raise ValueError("没有成功融合任何特征，请检查数据格式")
+
+        exterior_features = np.stack(exterior_features_list)
+        interior_features = np.stack(interior_features_list)
+        piece_ids = np.array(piece_ids_list)
+
+        # 分别对 exterior 和 interior 特征进行标准化，然后拼接
+        print("分别对 exterior 和 interior 特征进行标准化...")
+        scaler_ext = StandardScaler()
+        scaler_int = StandardScaler()
+        exterior_scaled = scaler_ext.fit_transform(exterior_features)
+        interior_scaled = scaler_int.fit_transform(interior_features)
+
+        # 拼接标准化后的特征
+        features = np.concatenate([exterior_scaled, interior_scaled], axis=1)
+        print(f"融合后特征维度: {features.shape}")
+        features_scaled = features  # 已标准化
+
     else:
-        raise ValueError(f"未知的聚类模式: {cluster_mode}")
-    
-    img_name_col = 'image_name' if 'image_name' in df.columns else image_col
-    
-    # 筛选对应类型的图像
-    df_filtered = df[df[img_name_col].str.lower().str.contains(filter_keyword)].copy()
-    
-    if len(df_filtered) == 0:
-        raise ValueError(f"没有找到任何 {filter_keyword} 图像")
-    
-    # 确保有 sample_id
-    if 'sample_id' not in df_filtered.columns:
-        df_filtered = ensure_sample_ids(df_filtered, image_col)
-    
-    # 每个 sample_id 只保留一张图像
-    rows = []
-    dropped = []
-    
-    for sample_id, group in df_filtered.groupby('sample_id'):
-        row = group.iloc[0].to_dict()
-        row['sample_id'] = sample_id
-        row['image_name'] = str(group.iloc[0][img_name_col])
-        # 为单面模式添加paired_images列，只包含该单面的图像
-        row['paired_images'] = str(group.iloc[0][img_name_col])
-        rows.append(row)
-    
-    result_df = pd.DataFrame(rows)
-    
-    # 返回原始特征列（128维），不是融合后的
-    return result_df, feature_cols, dropped
+        # 单面模式：仅使用 exterior 或 interior 图像
+        if cluster_mode == 'exterior':
+            filter_keyword = 'exterior'
+        elif cluster_mode == 'interior':
+            filter_keyword = 'interior'
+        else:
+            raise ValueError(f"未知的聚类模式: {cluster_mode}")
+
+        # 筛选对应类型的图像
+        df_filtered = df[df['filename'].str.lower().str.contains(filter_keyword)].copy()
+        print(f"筛选 {filter_keyword} 图像: {len(df_filtered)} 张")
+
+        if len(df_filtered) == 0:
+            raise ValueError(f"没有找到任何 {filter_keyword} 图像")
+
+        # 每个 main_id 只保留一张
+        selected_list = []
+        for main_id, group in df_filtered.groupby("main_id"):
+            result = group.iloc[:1].copy()
+            result['main_id'] = main_id
+            selected_list.append(result)
+
+        selected_df = pd.concat(selected_list, ignore_index=True)
+        unique_pieces = selected_df['main_id'].unique()
+        print(f"过滤后剩余陶片数: {len(unique_pieces)}")
+
+        # 直接使用单张图像特征
+        features = selected_df[feature_cols].values
+        piece_ids = selected_df['main_id'].values
+
+        print("对特征进行标准化...")
+        scaler = StandardScaler()
+        features_scaled = scaler.fit_transform(features)
+
+    print(f"特征维度: {features.shape}")
+
+    return {
+        'features': features,
+        'features_scaled': features_scaled,
+        'piece_ids': piece_ids,
+        'selected_df': selected_df
+    }
 
 
-# ============================================
-# 特征融合
-# ============================================
-def build_fused_samples(df, feature_cols, cluster_col, image_col):
-    """融合正反面特征，使每个样本只表示一次（用于可视化）
-    
-    与 kmeans_DINO.py 中的融合逻辑保持一致，将两张图像的特征向量拼接。
-    
-    Args:
-        df: pandas DataFrame，包含特征和元数据
-        feature_cols: 特征列名列表
-        cluster_col: 聚类列名
-        image_col: 图像列名
-        
-    Returns:
-        tuple: (fused_df, fused_feature_cols, dropped_samples)
-            - fused_df: 融合后的 DataFrame
-            - fused_feature_cols: 融合后的特征列名
-            - dropped_samples: 因缺少正反面而被跳过的样本ID列表
-    """
-    img_name_col = 'image_name' if 'image_name' in df.columns else image_col
-    fused_feature_cols = [f'fused_{i}' for i in range(len(feature_cols) * 2)]
-    
-    # 先收集所有的 exterior 和 interior 特征，用于计算标准化参数
-    exterior_vecs = []
-    interior_vecs = []
-    sample_pairs = []  # (sample_id, exterior_row, interior_row)
-    dropped = []
+def perform_kmeans_clustering(features_csv_path, n_clusters=20, cluster_mode='merged'):
+    """执行 K-Means 聚类"""
+    from sklearn.cluster import KMeans
+    from sklearn.metrics import silhouette_score
 
-    for sample_id, group in df.groupby('sample_id'):
-        # 保持确定性顺序；与 kmeans 流程匹配，按文件名排序
-        group = group.copy().sort_values(img_name_col)
-        if len(group) < 2:
-            dropped.append(sample_id)
-            continue
+    prep = _prepare_clustering_data(features_csv_path, cluster_mode)
+    features = prep['features']
+    features_scaled = prep['features_scaled']
+    piece_ids = prep['piece_ids']
+    selected_df = prep['selected_df']
 
-        first_two = group.head(2)
-        vec1 = first_two.iloc[0][feature_cols].values  # exterior
-        vec2 = first_two.iloc[1][feature_cols].values  # interior
-        exterior_vecs.append(vec1)
-        interior_vecs.append(vec2)
-        sample_pairs.append((sample_id, first_two))
+    if len(piece_ids) < n_clusters:
+        print(f"警告: 陶片数量 ({len(piece_ids)}) 小于聚类数 ({n_clusters})，将自动调整聚类数")
 
-    if len(exterior_vecs) == 0:
-        return pd.DataFrame(), fused_feature_cols, dropped
-    
-    # 分别标准化 exterior 和 interior 特征
-    exterior_arr = np.stack(exterior_vecs)
-    interior_arr = np.stack(interior_vecs)
-    
-    scaler_ext = StandardScaler()
-    scaler_int = StandardScaler()
-    exterior_scaled = scaler_ext.fit_transform(exterior_arr)
-    interior_scaled = scaler_int.fit_transform(interior_arr)
-    
-    # 拼接标准化后的特征并构建 DataFrame
-    rows = []
-    for i, (sample_id, first_two) in enumerate(sample_pairs):
-        fused_vec = np.concatenate([exterior_scaled[i], interior_scaled[i]], axis=0)
+    best_k = min(n_clusters, len(piece_ids))
+    print(f"开始 K-Means 聚类 (k={best_k})...")
 
-        # 从第一行获取元数据；同一对内的聚类应该相同
-        meta = first_two.iloc[0].drop(feature_cols).to_dict()
-        meta['sample_id'] = sample_id
-        meta[cluster_col] = first_two[cluster_col].mode().iloc[0]
-        meta['image_name'] = str(first_two[img_name_col].iloc[0])
-        meta['paired_images'] = ';'.join(first_two[img_name_col].astype(str).tolist())
+    kmeans = KMeans(n_clusters=best_k, random_state=42, n_init=10)
+    labels = kmeans.fit_predict(features_scaled)
+    cluster_centers = kmeans.cluster_centers_
 
-        for idx, val in enumerate(fused_vec):
-            meta[fused_feature_cols[idx]] = val
+    if len(set(labels)) > 1:
+        silhouette_avg = silhouette_score(features_scaled, labels)
+        print(f"轮廓系数: {silhouette_avg:.4f}")
+    else:
+        silhouette_avg = 0
 
-        rows.append(meta)
+    unique_labels, counts = np.unique(labels, return_counts=True)
+    print("\n聚类分布:")
+    for label, count in zip(unique_labels, counts):
+        print(f"  Cluster {label}: {count} 个样本")
 
-    fused_df = pd.DataFrame(rows)
-    return fused_df, fused_feature_cols, dropped
+    return {
+        'labels': labels,
+        'cluster_centers': cluster_centers,
+        'piece_ids': piece_ids,
+        'features': features,
+        'features_scaled': features_scaled,
+        'silhouette_score': silhouette_avg,
+        'selected_df': selected_df,
+        'n_clusters': best_k,
+        'algorithm': 'kmeans'
+    }
+
+
+def perform_agglomerative_clustering(features_csv_path, n_clusters=20, cluster_mode='merged', linkage='ward'):
+    """执行层次聚类（凝聚式）"""
+    from sklearn.cluster import AgglomerativeClustering
+    from sklearn.metrics import silhouette_score
+
+    prep = _prepare_clustering_data(features_csv_path, cluster_mode)
+    features = prep['features']
+    features_scaled = prep['features_scaled']
+    piece_ids = prep['piece_ids']
+    selected_df = prep['selected_df']
+
+    if len(piece_ids) < n_clusters:
+        print(f"警告: 陶片数量 ({len(piece_ids)}) 小于聚类数 ({n_clusters})，将自动调整聚类数")
+
+    best_k = min(n_clusters, len(piece_ids))
+    print(f"开始 Agglomerative 聚类 (k={best_k}, linkage={linkage})...")
+
+    model = AgglomerativeClustering(n_clusters=best_k, linkage=linkage)
+    labels = model.fit_predict(features_scaled)
+
+    # 计算每个簇的中心（均值），用于与 K-Means 输出保持一致结构
+    cluster_centers = []
+    for c in range(best_k):
+        mask = labels == c
+        if np.any(mask):
+            center = features_scaled[mask].mean(axis=0)
+        else:
+            center = np.zeros(features_scaled.shape[1])
+        cluster_centers.append(center)
+    cluster_centers = np.stack(cluster_centers)
+
+    if len(set(labels)) > 1:
+        silhouette_avg = silhouette_score(features_scaled, labels)
+        print(f"轮廓系数: {silhouette_avg:.4f}")
+    else:
+        silhouette_avg = 0
+
+    unique_labels, counts = np.unique(labels, return_counts=True)
+    print("\n聚类分布:")
+    for label, count in zip(unique_labels, counts):
+        print(f"  Cluster {label}: {count} 个样本")
+
+    return {
+        'labels': labels,
+        'cluster_centers': cluster_centers,
+        'piece_ids': piece_ids,
+        'features': features,
+        'features_scaled': features_scaled,
+        'silhouette_score': silhouette_avg,
+        'selected_df': selected_df,
+        'n_clusters': best_k,
+        'algorithm': f'agglomerative-{linkage}'
+    }
+
+
+def perform_spectral_clustering(features_csv_path, n_clusters=20, cluster_mode='merged', assign_labels='kmeans', gamma=None):
+    """执行谱聚类；gamma 未指定时默认 1.0"""
+    from sklearn.metrics import silhouette_score
+
+    prep = _prepare_clustering_data(features_csv_path, cluster_mode)
+    features = prep['features']
+    features_scaled = prep['features_scaled']
+    piece_ids = prep['piece_ids']
+    selected_df = prep['selected_df']
+
+    if len(piece_ids) < n_clusters:
+        print(f"警告: 陶片数量 ({len(piece_ids)}) 小于聚类数 ({n_clusters})，将自动调整聚类数")
+
+    best_k = min(n_clusters, len(piece_ids))
+    if best_k < 2:
+        raise ValueError("谱聚类需要至少 2 个样本")
+
+    if gamma is None:
+        gamma = 1.0  # sklearn 需非负浮点数
+
+    print(f"开始 Spectral 聚类 (k={best_k}, assign_labels={assign_labels}, gamma={gamma})...")
+
+    model = SpectralClustering(
+        n_clusters=best_k,
+        affinity='rbf',
+        assign_labels=assign_labels,
+        random_state=42,
+        gamma=gamma
+    )
+    labels = model.fit_predict(features_scaled)
+
+    # 使用簇内均值作为聚类中心的近似
+    cluster_centers = []
+    for c in range(best_k):
+        mask = labels == c
+        if np.any(mask):
+            center = features_scaled[mask].mean(axis=0)
+        else:
+            center = np.zeros(features_scaled.shape[1])
+        cluster_centers.append(center)
+    cluster_centers = np.stack(cluster_centers)
+
+    if len(set(labels)) > 1:
+        silhouette_avg = silhouette_score(features_scaled, labels)
+        print(f"轮廓系数: {silhouette_avg:.4f}")
+    else:
+        silhouette_avg = 0
+
+    unique_labels, counts = np.unique(labels, return_counts=True)
+    print("\n聚类分布:")
+    for label, count in zip(unique_labels, counts):
+        print(f"  Cluster {label}: {count} 个样本")
+
+    return {
+        'labels': labels,
+        'cluster_centers': cluster_centers,
+        'piece_ids': piece_ids,
+        'features': features,
+        'features_scaled': features_scaled,
+        'silhouette_score': silhouette_avg,
+        'selected_df': selected_df,
+        'n_clusters': best_k,
+        'algorithm': f'spectral-{assign_labels}'
+    }
 
 
 # ============================================
@@ -714,4 +897,125 @@ def perform_kmeans_clustering(features_csv_path, n_clusters=20, cluster_mode='me
         'silhouette_score': silhouette_avg,
         'selected_df': selected_df,
         'n_clusters': best_k
+    }
+
+
+# ============================================
+# Leiden 聚类（Mutual kNN + Leiden 社区发现）
+# ============================================
+def perform_leiden_clustering(
+    features_csv_path,
+    cluster_mode='merged',
+    topk=30,
+    second_order_weight=0.05,
+    resolution=2.5,
+    min_diffusion_weight=0.01
+):
+    """使用 mutual kNN 图和 Leiden 社区发现进行聚类。
+
+    Returns 结构与其他聚类函数保持一致，便于可视化和表格生成。
+    """
+
+    try:
+        from sklearn.metrics import silhouette_score
+        from sklearn.metrics.pairwise import cosine_similarity
+        import scipy.sparse as sp
+        import igraph as ig
+        import leidenalg
+    except ImportError as exc:  # 依赖缺失时给出明确提示
+        raise ImportError(
+            "Leiden 聚类需要安装 python-igraph 和 leidenalg, 以及 scipy"
+        ) from exc
+
+    prep = _prepare_clustering_data(features_csv_path, cluster_mode)
+    features = prep['features']
+    features_scaled = prep['features_scaled']
+    piece_ids = prep['piece_ids']
+    selected_df = prep['selected_df']
+
+    n = features_scaled.shape[0]
+    if n < 2:
+        raise ValueError('样本数量不足，无法执行 Leiden 聚类')
+
+    print(f"开始 Leiden 聚类: n={n}, topk={topk}, resolution={resolution}, second_order_weight={second_order_weight}")
+
+    # 构建 mutual kNN 相似度图
+    sim = cosine_similarity(features_scaled)
+    np.fill_diagonal(sim, 0)
+
+    neighbors = np.argsort(sim, axis=1)[:, -topk:]
+    neighbor_sets = [set(row) for row in neighbors]
+
+    rows, cols, data = [], [], []
+    for i in range(n):
+        for j in neighbors[i]:
+            if i in neighbor_sets[j]:
+                w = sim[i, j] ** 2  # 抑制弱边
+                rows.append(i)
+                cols.append(j)
+                data.append(w)
+
+    A = sp.csr_matrix((data, (rows, cols)), shape=(n, n), dtype=np.float32)
+    print(f"一阶图：节点 {n}，边数 {A.nnz}")
+
+    # 二阶扩散增强传递性
+    A2 = A @ A
+    A2 = A2.multiply(second_order_weight)
+    if min_diffusion_weight is not None and min_diffusion_weight > 0:
+        A2.data[A2.data < min_diffusion_weight] = 0
+        A2.eliminate_zeros()
+
+    A_final = A + A2
+    A_final.eliminate_zeros()
+    print(f"最终图：边数 {A_final.nnz}")
+
+    if A_final.nnz == 0:
+        raise ValueError('图为空，无法进行 Leiden 聚类')
+
+    edges = list(zip(A_final.nonzero()[0], A_final.nonzero()[1]))
+    weights = A_final.data.tolist()
+
+    g = ig.Graph(n=n, edges=edges, directed=False)
+    g.es['weight'] = weights
+
+    partition = leidenalg.find_partition(
+        g,
+        leidenalg.RBConfigurationVertexPartition,
+        weights='weight',
+        resolution_parameter=resolution
+    )
+
+    labels = np.empty(n, dtype=int)
+    for cid, cluster in enumerate(partition):
+        labels[list(cluster)] = cid
+
+    n_clusters = len(partition)
+    print(f"Leiden 得到 {n_clusters} 个聚类")
+
+    # 计算聚类中心（使用标准化特征的均值）
+    cluster_centers = []
+    for c in range(n_clusters):
+        mask = labels == c
+        if np.any(mask):
+            center = features_scaled[mask].mean(axis=0)
+        else:
+            center = np.zeros(features_scaled.shape[1], dtype=np.float32)
+        cluster_centers.append(center)
+    cluster_centers = np.stack(cluster_centers)
+
+    silhouette_avg = 0.0
+    if n_clusters > 1:
+        silhouette_avg = float(silhouette_score(features_scaled, labels))
+        print(f"轮廓系数: {silhouette_avg:.4f}")
+
+    return {
+        'labels': labels,
+        'cluster_centers': cluster_centers,
+        'piece_ids': piece_ids,
+        'features': features,
+        'features_scaled': features_scaled,
+        'silhouette_score': silhouette_avg,
+        'selected_df': selected_df,
+        'n_clusters': n_clusters,
+        'algorithm': 'leiden'
     }

@@ -29,6 +29,9 @@ from data_processing import (
     img_to_base64,
     img_to_base64_full,  # 导入原图函数
     perform_kmeans_clustering,
+    perform_agglomerative_clustering,
+    perform_spectral_clustering,
+    perform_leiden_clustering,
     DEFAULT_CSV,
     DEFAULT_IMAGE_ROOT,
 )
@@ -56,7 +59,7 @@ TABLE_CSV = Path(__file__).parent / 'sherd_cluster_table_clustered_only.csv'
 # 应用配置
 APP_CONFIG = {
     'title': '陶片聚类交互可视化',
-    'port': 9000,
+    'port': 9357,
     'host': '127.0.0.1',
     'debug': False,
     'max_clusters': 50,
@@ -110,6 +113,31 @@ def generate_distinct_colors(n_colors):
 
 # 预生成50种不同的颜色
 CLUSTER_COLORS = generate_distinct_colors(50)
+
+# 离散形状序列，用于在散点图中区分陶片部位
+PART_SYMBOL_SEQUENCE = [
+    'circle', 'square', 'diamond', 'cross', 'x',
+    'triangle-up', 'triangle-down', 'triangle-left', 'triangle-right',
+    'pentagon', 'hexagon', 'star', 'hexagram', 'star-square', 'star-diamond'
+]
+
+
+def get_part_symbol_settings(dataframe):
+    """生成基于部位字段的形状映射"""
+    symbol_col = None
+    if 'part_C' in dataframe.columns and dataframe['part_C'].notna().any():
+        symbol_col = 'part_C'
+    elif 'part' in dataframe.columns and dataframe['part'].notna().any():
+        symbol_col = 'part'
+
+    if symbol_col is None:
+        return None, {}
+
+    parts = [p for p in dataframe[symbol_col].dropna().unique()]
+    parts = sorted(parts, key=lambda x: str(x))
+    symbol_map = {p: PART_SYMBOL_SEQUENCE[i % len(PART_SYMBOL_SEQUENCE)] for i, p in enumerate(parts)}
+
+    return symbol_col, symbol_map
 
 
 def create_app(csv=CSV, image_root=IMAGE_ROOT):
@@ -247,9 +275,23 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         custom.append('sherd_id')
     # 初始使用UMAP降维的结果
     initial_algorithm = 'umap'
-    fig = px.scatter(df, x=f'{initial_reduction_key}_0', y=f'{initial_reduction_key}_1', 
-                     color=df[cluster_col].astype(str), hover_data=hover_cols, custom_data=custom,
-                     color_discrete_sequence=CLUSTER_COLORS)
+    part_symbol_col, part_symbol_map = get_part_symbol_settings(df)
+    scatter_kwargs = {
+        'x': f'{initial_reduction_key}_0',
+        'y': f'{initial_reduction_key}_1',
+        'color': df[cluster_col].astype(str),
+        'hover_data': hover_cols,
+        'custom_data': custom,
+        'color_discrete_sequence': CLUSTER_COLORS
+    }
+    if part_symbol_col:
+        scatter_kwargs.update({
+            'symbol': part_symbol_col,
+            'symbol_map': part_symbol_map,
+            'symbol_sequence': PART_SYMBOL_SEQUENCE
+        })
+
+    fig = px.scatter(df, **scatter_kwargs)
 
     # 准备降维算法选项
     algorithm_options = [
@@ -282,6 +324,21 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                 dcc.Input(id='n-clusters-input', type='number', value=20, min=2, step=1, 
                          style={'width': '80px', 'marginLeft': '10px', 'marginRight': '20px'}),
             ], style={'display': 'inline-block', 'marginRight': '20px'}),
+            html.Div([
+                html.Label('聚类算法:'),
+                dcc.Dropdown(
+                    id='cluster-algorithm-selector',
+                    options=[
+                        {'label': 'K-Means', 'value': 'kmeans'},
+                        {'label': '层次聚类 (Ward)', 'value': 'agglomerative-ward'},
+                        {'label': '谱聚类 (Spectral)', 'value': 'spectral-kmeans'},
+                        {'label': 'Leiden (Mutual kNN)', 'value': 'leiden'}
+                    ],
+                    value='kmeans',
+                    clearable=False,
+                    style={'width': '180px', 'marginLeft': '10px'}
+                ),
+            ], style={'display': 'inline-block', 'marginRight': '20px', 'verticalAlign': 'middle'}),
             html.Div([
                 html.Label('聚类模式:'),
                 dcc.Dropdown(
@@ -381,7 +438,15 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                     dcc.Store(id='cluster-images-store'),
                     dcc.Store(id='cluster-page', data=1)
                 ], style={'width': '320px', 'borderLeft': '1px solid #ddd', 'padding': '8px', 'boxSizing': 'border-box'})
-            ], style={'display': 'flex', 'gap': '12px', 'height': 'calc(100vh - 180px)'})
+                ], style={'display': 'flex', 'gap': '12px', 'height': 'calc(100vh - 180px)'})
+
+                # 比较操作工具条（紧贴散点图区域下方）
+                ,html.Div([
+                    html.Button('添加到比较', id='compare-add', style={'width': '120px', 'backgroundColor': '#0066cc', 'color': 'white', 'border': 'none', 'borderRadius': '4px', 'padding': '6px 10px'}),
+                    html.Button('清空比较', id='compare-clear', style={'width': '120px'}),
+                    html.A('进入比较视图', href='#compare-section', target='_blank', style={'marginLeft': '10px', 'textDecoration': 'none', 'color': '#0066cc', 'fontWeight': '600'}),
+                    html.Span('（先点击散点图选中样本，再添加到比较）', style={'marginLeft': '10px', 'color': '#666'})
+                ], style={'display': 'flex', 'alignItems': 'center', 'gap': '10px', 'marginTop': '8px', 'marginBottom': '8px'})
             ]),
             
             # 聚类特征热力图选项卡
@@ -402,6 +467,31 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         # bottom area: sample (front/back) gallery
         html.Div(id='sample-panel', style={'marginTop': '12px', 'minHeight': '220px', 'borderTop': '1px solid #ddd', 'paddingTop': '8px'}),
         html.Div(id='selected-meta'),
+        html.Div([
+            html.Div([
+                html.H4('手动比较视图', style={'margin': 0}),
+                html.Div([
+                    html.Button('清空比较', id='compare-clear-bottom', style={'width': '120px'})
+                ], style={'display': 'flex', 'gap': '8px', 'marginTop': '6px'})
+            ], style={'display': 'flex', 'flexDirection': 'column', 'gap': '4px', 'marginBottom': '8px'}),
+            html.Div([
+                html.Div([
+                    html.Label('卡片尺寸'),
+                    dcc.Slider(id='compare-size', min=140, max=320, step=20, value=220,
+                               marks={140:'140', 200:'200', 260:'260', 320:'320'}, tooltip={'placement':'bottom','always_visible':False}),
+                ], style={'flex': '1', 'minWidth': '200px', 'marginRight': '12px'}),
+                html.Div([
+                    html.Label('布局模式'),
+                    dcc.RadioItems(
+                        id='compare-layout',
+                        options=[{'label': '网格换行', 'value': 'grid'}, {'label': '横向滚动', 'value': 'row'}],
+                        value='grid',
+                        labelStyle={'marginRight': '12px'}
+                    )
+                ], style={'width': '260px'})
+            ], style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '12px', 'marginBottom': '8px'}),
+            html.Div(id='compare-panel', style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '16px', 'padding': '8px', 'border': '1px dashed #ddd', 'minHeight': '120px'})
+        ], id='compare-section', style={'borderTop': '1px solid #eee', 'paddingTop': '8px', 'marginTop': '8px'}),
         
         # Store components for data sharing between callbacks
         dcc.Store(id='data-store', data={
@@ -417,6 +507,10 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         dcc.Store(id='reload-trigger', data=0),
         # Store for cluster metadata
         dcc.Store(id='cluster-metadata-store', data=cluster_metadata),
+        # Store for手动比较的选中样本
+        dcc.Store(id='compare-selected-store', data=[]),
+        # Store for最近一次点击的样本
+        dcc.Store(id='last-selected-store', data={}),
         # Store for hover state
         dcc.Store(id='hover-state', data={'hovered_cluster': None}),
         # Store for sample_id to cluster_id mapping (for fast hover lookup)
@@ -784,11 +878,12 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             if (new_figure.data) {
                 new_figure.data.forEach(trace => {
                     if (hovered_cluster !== null && hovered_cluster !== undefined) {
-                        // 如果有悬停聚类，突出显示该聚类
-                        const cluster_match = trace.name === String(hovered_cluster);
-                        trace.opacity = cluster_match ? 1.0 : 0.2;
+                        // Plotly 在 color+symbol 情况下 trace.name 可能为 "cluster,part"，因此用前缀匹配
+                        const name = trace.name || '';
+                        const clusterMatch = name === String(hovered_cluster) || name.startsWith(String(hovered_cluster) + ',');
+                        trace.opacity = clusterMatch ? 1.0 : 0.2;
                     } else {
-                        // 如果没有悬停，恢复默认透明度
+                        // 没有悬停时保持默认透明度
                         trace.opacity = 0.85;
                     }
                 });
@@ -907,6 +1002,18 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                                                            algorithm=selected_algorithm, 
                                                            n_components=selected_dimension)
         
+        part_symbol_col, part_symbol_map = get_part_symbol_settings(df)
+        symbol_kwargs = {}
+        if part_symbol_col:
+            symbol_kwargs = {
+                'symbol': part_symbol_col,
+                'symbol_map': part_symbol_map,
+                'symbol_sequence': PART_SYMBOL_SEQUENCE
+            }
+
+        # 3D图在部分 Plotly 版本对 symbol_sequence 支持不稳定，单独分支
+        symbol_kwargs_3d = {}  # 先禁用3D形状，确保渲染稳定
+
         dff = df.copy()
         
         # 应用所有筛选条件
@@ -943,7 +1050,8 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             fig = px.scatter(dff, x=f'{reduction_key}_0', y=f'{reduction_key}_1', 
                            color=dff[cluster_col].astype(str), 
                            hover_data=hover_cols, custom_data=custom,
-                           color_discrete_sequence=CLUSTER_COLORS)
+                           color_discrete_sequence=CLUSTER_COLORS,
+                           **symbol_kwargs)
         else:  # 3D
             # 根据z轴选择生成不同的3D图
             if z_axis == 'unit_C' and 'unit_C' in dff.columns:
@@ -971,7 +1079,8 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                                   hover_data=hover_cols + ['unit_C'],  # 在hover中显示原始的unit_C值
                                   custom_data=custom,
                                   title=f'{selected_algorithm} + unit_C三维图',
-                                  color_discrete_sequence=CLUSTER_COLORS)
+                                  color_discrete_sequence=CLUSTER_COLORS,
+                                  **symbol_kwargs_3d)
                 
                 # 更新z轴标题
                 fig.update_layout(
@@ -1006,7 +1115,8 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                                   color=dff[cluster_col].astype(str), 
                                   hover_data=hover_cols, custom_data=custom,
                                   title=f'{selected_algorithm}三维降维图',
-                                  color_discrete_sequence=CLUSTER_COLORS)
+                                  color_discrete_sequence=CLUSTER_COLORS,
+                                  **symbol_kwargs_3d)
                 # 直接设置点大小
                 fig.update_traces(marker={'size': 1})
         
@@ -1044,19 +1154,23 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
 
     @app.callback(
         Output('cluster-images-store', 'data'),
+        Output('last-selected-store', 'data'),
         Output('sample-panel', 'children'),
         Output('selected-meta', 'children'),
         Input('tsne-plot', 'clickData'),
         State('data-store', 'data')
     )
     def show_selected(clickData, data_store=None):
-        # when no click, clear store
+        # when no click, clear cluster panel
         if not clickData or data_store is None:
-            return [], html.Div('点击一个点以查看图片'), ''
+            return [], {}, html.Div('点击一个点以查看图片'), ''
 
         pts = clickData.get('points', [])
         if len(pts) == 0:
-            return [], html.Div('点击一个点以查看图片'), ''
+            return [], {}, html.Div('点击一个点以查看图片'), ''
+
+        base_root = Path(__file__).parent
+        image_root = (base_root / IMAGE_ROOT) if not Path(IMAGE_ROOT).is_absolute() else Path(IMAGE_ROOT)
 
         p = pts[0]
         cd = p.get('customdata') or []
@@ -1093,7 +1207,7 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                         row = row_candidate.iloc[0]
                         break
         if row is None:
-            return [], html.Div('未找到对应记录'), ''
+            return [], {}, html.Div('未找到对应记录'), ''
 
         sample_id = sample_id or row.get('sample_id')
         paired_images = paired_images or row.get('paired_images')
@@ -1110,14 +1224,88 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         elif img_name:
             paired_names = [str(img_name)]
 
-        base_dir = Path(row[image_col]).parent
+        # 如果只有单侧，尝试在当前数据里找同一件陶片的另一侧（根据 sample_id 或文件名前缀匹配）
+        if len(paired_names) < 2:
+            base_key = None
+            if sample_id:
+                base_key = str(sample_id).replace('_exterior', '').replace('_interior', '')
+            elif img_name:
+                base_key = Path(str(img_name)).stem
+                base_key = base_key.replace('_exterior', '').replace('_interior', '')
+
+            if base_key:
+                candidates = []
+                # 优先使用 image_name 列匹配
+                if 'image_name' in df.columns:
+                    candidates = df[df['image_name'].str.contains(base_key, na=False)]['image_name'].tolist()
+                # 退回 sample_id 列匹配
+                if len(candidates) < 2 and 'sample_id' in df.columns:
+                    candidates = candidates + df[df['sample_id'].str.contains(base_key, na=False)]['image_name'].tolist()
+
+                candidates = list({Path(c).name for c in candidates})  # 去重保留文件名
+                if len(candidates) > 1:
+                    paired_names = candidates
+
+        base_ext = Path(str(img_name)).suffix or '.png'
+
+        def resolve_image_path(name, fallback_dir):
+            """尽量找到图片路径：优先给定目录，其次 all_kmeans_new 下的同名文件，再退回 all_cutouts。"""
+            name = Path(str(name)).name
+
+            fb_dir = Path(fallback_dir)
+            if not fb_dir.is_absolute():
+                fb_dir = base_root / fb_dir
+
+            def search_with_name(candidate_name: str):
+                candidate = fb_dir / candidate_name
+                if candidate.exists():
+                    return candidate
+                cluster_root = base_root / 'all_kmeans_new'
+                for root, _, files in os.walk(cluster_root):
+                    if candidate_name in files:
+                        return Path(root) / candidate_name
+                cutout_path = base_root / 'all_cutouts' / candidate_name
+                if cutout_path.exists():
+                    return cutout_path
+                return None
+
+            # 1) 尝试原名
+            primary = search_with_name(name)
+            if primary:
+                return primary
+
+            # 2) 若无扩展名，尝试常见图片扩展
+            if Path(name).suffix == '':
+                # 尝试直接加扩展
+                for ext in [base_ext, '.png', '.jpg', '.jpeg']:
+                    alt = search_with_name(f"{name}{ext}")
+                    if alt:
+                        return alt
+                # 若名字中无侧面标记，则尝试补 _exterior/_interior
+                if '_exterior' not in name and '_interior' not in name:
+                    for side in ['_exterior', '_interior']:
+                        for ext in [base_ext, '.png', '.jpg', '.jpeg']:
+                            alt = search_with_name(f"{name}{side}{ext}")
+                            if alt:
+                                return alt
+
+            print(f"[WARN] image not found. name={name}, tried_dir={fb_dir}")
+            return fb_dir / name  # 返回一个可预测路径以便后续检测
+
+        # 优先使用表里的 image_path（build_table 生成），否则用 image_col；若仍是文件名则退回图像根目录
+        base_dir = image_root
+        if 'image_path' in row and pd.notna(row['image_path']):
+            base_dir = Path(row['image_path']).parent
+        else:
+            candidate = Path(str(row[image_col]))
+            if candidate.parent != candidate:
+                base_dir = candidate.parent
+        print(f"[INFO] sample base_dir={base_dir}, image_root={image_root}, img_name={img_name}")
         sample_imgs = []
         for i, nm in enumerate(paired_names):
-            ipath = base_dir / nm
+            ipath = resolve_image_path(nm, base_dir)
             if not ipath.exists():
-                cand = image_root / Path(nm).name
-                if cand.exists():
-                    ipath = cand
+                print(f"[WARN] resolved path missing: {ipath} for nm={nm}")
             b64 = img_to_base64(ipath)
             b64_full = img_to_base64_full(ipath)  # 同时生成原图
             if b64:
@@ -1134,6 +1322,9 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                     },
                     title='点击放大查看'
                 ))
+            else:
+                print(f"[WARN] failed to encode image: {ipath}")
+                sample_imgs.append(html.Div(f"缺少图片或无法读取: {ipath.name}"))
 
         if len(sample_imgs) == 0:
             sample_imgs = [html.Div('未找到正反面图片')]
@@ -1146,18 +1337,22 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         same_cluster = df[df[cluster_col] == cluster_val]
         image_paths = []
         for _, r in same_cluster.iterrows():
-            base_dir = Path(r[image_col]).parent
+            base_dir = image_root
+            if 'image_path' in r and pd.notna(r['image_path']):
+                base_dir = Path(r['image_path']).parent
+            else:
+                candidate = Path(str(r[image_col]))
+                if candidate.parent != candidate:
+                    base_dir = candidate.parent
             names = []
             if 'paired_images' in r and pd.notna(r['paired_images']):
                 names = [n for n in str(r['paired_images']).split(';') if n]
             elif 'image_name' in r:
                 names = [str(r['image_name'])]
             for nm in names:
-                ipath = base_dir / nm
+                ipath = resolve_image_path(nm, base_dir)
                 if not ipath.exists():
-                    cand = image_root / Path(nm).name
-                    if cand.exists():
-                        ipath = cand
+                    print(f"[WARN] cluster thumb path missing: {ipath} for nm={nm} base_dir={base_dir}")
                 image_paths.append(str(ipath))
 
         # 构建详细的元数据信息
@@ -1203,10 +1398,102 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         
         meta = html.Div(meta_parts)
 
-        return image_paths, sample_panel_children, meta
+        # 准备用于对比的记录（单次点击存储，不直接加入列表）
+        rep_name = None
+        if 'image_name' in row:
+            rep_name = row['image_name']
+        elif paired_images:
+            rep_name = paired_images[0]
+        rep_path = None
+        if rep_name:
+            base_dir = image_root
+            if 'image_path' in row and pd.notna(row['image_path']):
+                base_dir = Path(row['image_path']).parent
+            else:
+                candidate = Path(str(row[image_col]))
+                if candidate.parent != candidate:
+                    base_dir = candidate.parent
+            pth = resolve_image_path(rep_name, base_dir)
+            if not pth.exists():
+                print(f"[WARN] compare path missing: {pth} for rep_name={rep_name}")
+            rep_path = str(pth) if pth else None
+        last_selected = {
+            'sample_id': str(sample_id),
+            'cluster': str(cluster_val),
+            'name': str(rep_name) if rep_name else '未知图像',
+            'path': rep_path or ''
+        }
+
+        return image_paths, last_selected, sample_panel_children, meta
 
 
     PAGE_SIZE = 20
+
+
+    @app.callback(
+        Output('compare-selected-store', 'data'),
+        Input('compare-add', 'n_clicks'),
+        Input('compare-clear', 'n_clicks'),
+        Input('compare-clear-bottom', 'n_clicks'),
+        State('compare-selected-store', 'data'),
+        State('last-selected-store', 'data')
+    )
+    def update_compare_store(add_clicks, clear_clicks, clear_clicks_bottom, selected_items, last_selected):
+        selected_items = selected_items or []
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            return selected_items
+        triggered = ctx.triggered[0]['prop_id'].split('.')[0]
+        if triggered in ('compare-clear', 'compare-clear-bottom'):
+            return []
+        if triggered == 'compare-add':
+            if not last_selected or not last_selected.get('sample_id'):
+                return selected_items
+            sid = str(last_selected.get('sample_id'))
+            filtered = [c for c in selected_items if c.get('sample_id') != sid]
+            filtered.append(last_selected)
+            return filtered
+        return selected_items
+
+    @app.callback(
+        Output('compare-panel', 'children'),
+        Input('compare-selected-store', 'data'),
+        Input('compare-size', 'value'),
+        Input('compare-layout', 'value')
+    )
+    def render_compare(selected_items, card_size, layout_mode):
+        if not selected_items:
+            return html.Div('点击散点图选中样本后，按“添加到比较”即可在此并排查看。', style={'color': '#666'})
+
+        size = card_size or 220
+        img_h = max(120, min(360, size))
+        card_w = img_h + 40
+
+        cards = []
+        for item in selected_items:
+            pth = item.get('path')
+            b64 = img_to_base64(Path(pth), max_size=img_h) if pth else None
+            cards.append(html.Div([
+                html.Div(f"Cluster {item.get('cluster', '')}", style={'fontSize': '12px', 'color': '#666'}),
+                html.Img(
+                    src=b64 if b64 else '', 
+                    style={'height': f'{img_h}px', 'border': '1px solid #ccc', 'borderRadius': '4px', 'backgroundColor': '#fafafa'},
+                    **({'data-image-path': Path(pth).name} if pth else {})
+                ),
+                html.Div(item.get('name', '未知'), style={'marginTop': '6px', 'fontSize': '13px', 'fontWeight': '500'})
+            ], style={'width': f'{card_w}px'}))
+
+        container_style = {
+            'display': 'flex',
+            'gap': '16px',
+            'padding': '4px'
+        }
+        if layout_mode == 'row':
+            container_style.update({'flexWrap': 'nowrap', 'overflowX': 'auto'})
+        else:
+            container_style.update({'flexWrap': 'wrap'})
+
+        return html.Div(cards, style=container_style)
 
 
 
@@ -1217,19 +1504,49 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         Input('recluster-button', 'n_clicks'),
         [State('n-clusters-input', 'value'),
          State('cluster-mode-selector', 'value'),
+         State('cluster-algorithm-selector', 'value'),
          State('reload-trigger', 'data')]
     )
-    def perform_reclustering(n_clicks, n_clusters, cluster_mode, current_trigger):
+    def perform_reclustering(n_clicks, n_clusters, cluster_mode, cluster_algorithm, current_trigger):
         if n_clicks == 0 or n_clicks is None:
             return '', dash.no_update
         
         try:
+            cluster_algorithm = cluster_algorithm or 'kmeans'
+
             # 调用聚类函数
-            clustering_result = perform_kmeans_clustering(
-                features_csv_path=FEATURES_CSV,
-                n_clusters=n_clusters,
-                cluster_mode=cluster_mode
-            )
+            if cluster_algorithm == 'kmeans':
+                clustering_result = perform_kmeans_clustering(
+                    features_csv_path=FEATURES_CSV,
+                    n_clusters=n_clusters,
+                    cluster_mode=cluster_mode
+                )
+            elif cluster_algorithm.startswith('agglomerative'):
+                _, _, linkage = cluster_algorithm.partition('-')
+                linkage = linkage or 'ward'
+                clustering_result = perform_agglomerative_clustering(
+                    features_csv_path=FEATURES_CSV,
+                    n_clusters=n_clusters,
+                    cluster_mode=cluster_mode,
+                    linkage=linkage
+                )
+            elif cluster_algorithm.startswith('spectral'):
+                _, _, assign_labels = cluster_algorithm.partition('-')
+                assign_labels = assign_labels or 'kmeans'
+                clustering_result = perform_spectral_clustering(
+                    features_csv_path=FEATURES_CSV,
+                    n_clusters=n_clusters,
+                    cluster_mode=cluster_mode,
+                    assign_labels=assign_labels
+                )
+            elif cluster_algorithm == 'leiden':
+                # Leiden 基于分辨率参数决定簇数，此处使用默认参数
+                clustering_result = perform_leiden_clustering(
+                    features_csv_path=FEATURES_CSV,
+                    cluster_mode=cluster_mode
+                )
+            else:
+                raise ValueError(f"不支持的聚类算法: {cluster_algorithm}")
             
             # 提取结果
             labels = clustering_result['labels']
@@ -1237,6 +1554,7 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             piece_ids = clustering_result['piece_ids']
             silhouette_avg = clustering_result['silhouette_score']
             selected_df = clustering_result['selected_df']  # 包含 filename 和 main_id 的 DataFrame
+            algo_name = clustering_result.get('algorithm', cluster_algorithm)
             
             # 保存聚类结果到文件（类似 kmeans_DINO.py 的输出）
             import json
@@ -1255,7 +1573,8 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                 'n_clusters': int(clustering_result['n_clusters']),
                 'cluster_centers': cluster_centers.tolist(),
                 'silhouette_score': float(silhouette_avg),
-                'cluster_mode': cluster_mode  # 保存聚类模式
+                'cluster_mode': cluster_mode,  # 保存聚类模式
+                'algorithm': algo_name
             }
             
             with open(output_dir / 'cluster_metadata.json', 'w', encoding='utf-8') as f:
@@ -1307,8 +1626,14 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             # 聚类模式中文名称
             mode_names = {'merged': '融合', 'exterior': '仅外部', 'interior': '仅内部'}
             mode_display = mode_names.get(cluster_mode, cluster_mode)
-            
-            status = f'✓ 聚类完成! 模式={mode_display}, K={clustering_result["n_clusters"]}, 轮廓系数={silhouette_avg:.3f}'
+
+            algo_display = {
+                'kmeans': 'K-Means',
+                'agglomerative-ward': '层次(ward)',
+                'spectral-kmeans': '谱聚类',
+                'leiden': 'Leiden (kNN 图)'
+            }
+            status = f'✓ 聚类完成! 算法={algo_display.get(cluster_algorithm, algo_name)}, 模式={mode_display}, K={clustering_result["n_clusters"]}, 轮廓系数={silhouette_avg:.3f}'
             
             success_msg = html.Div([
                 html.Span(status, style={'color': 'green', 'fontWeight': 'bold'}),
