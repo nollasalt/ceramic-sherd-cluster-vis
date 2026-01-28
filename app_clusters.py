@@ -6,6 +6,7 @@
 
 from io import StringIO
 from pathlib import Path
+import json
 import os
 import time
 
@@ -14,7 +15,7 @@ import numpy as np
 import plotly.express as px
 
 import dash
-from dash import dcc, html, Input, Output, State
+from dash import dcc, html, Input, Output, State, ALL
 
 # 从数据处理模块导入
 from data_processing import (
@@ -49,6 +50,7 @@ except ImportError:
     def timing_decorator(func): return func
     def cache_plot_result(func): return func
     def optimize_dataframe(df): return df
+    image_cache = None
 
 # 配置常量
 CSV = DEFAULT_CSV
@@ -59,7 +61,7 @@ TABLE_CSV = Path(__file__).parent / 'sherd_cluster_table_clustered_only.csv'
 # 应用配置
 APP_CONFIG = {
     'title': '陶片聚类交互可视化',
-    'port': 9357,
+    'port': 11864,
     'host': '127.0.0.1',
     'debug': False,
     'max_clusters': 50,
@@ -459,8 +461,112 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             # 聚类相似度矩阵选项卡
             dcc.Tab(label='聚类相似度矩阵', value='similarity', children=[
                 html.Div([
-                    html.Div(id='similarity-container', style={'height': 'calc(100vh - 180px)', 'width': '100%'})
+                    html.Div([
+                        html.Label('矩阵类型:'),
+                        dcc.RadioItems(
+                            id='similarity-metric',
+                            options=[
+                                {'label': '相似度 (余弦)', 'value': 'cosine'},
+                                {'label': '距离 (欧氏)', 'value': 'euclidean'}
+                            ],
+                            value='cosine',
+                            labelStyle={'marginRight': '12px'}
+                        )
+                    ], style={'marginBottom': '8px'}),
+                    dcc.Loading(
+                        type='default',
+                        children=dcc.Graph(id='similarity-graph', style={'height': 'calc(100vh - 210px)', 'width': '100%'})
+                    )
                 ], style={'marginTop': '12px'})
+            ]),
+
+            # 簇规模分布选项卡
+            dcc.Tab(label='簇规模分布', value='cluster-size', children=[
+                html.Div([
+                    dcc.Graph(
+                        id='cluster-size-graph',
+                        style={'height': 'calc(100vh - 200px)'}
+                    )
+                ], style={'marginTop': '12px'})
+            ]),
+
+            # 聚类质量指标选项卡
+            dcc.Tab(label='聚类质量', value='cluster-quality', children=[
+                html.Div([
+                    html.Div(id='cluster-quality-cards', style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap'})
+                ], style={'marginTop': '12px', 'padding': '0 8px'})
+            ]),
+
+            # 类别构成选项卡
+            dcc.Tab(label='类别构成', value='category-breakdown', children=[
+                html.Div([
+                    html.Div([
+                        html.Label('类别字段:'),
+                        dcc.Dropdown(
+                            id='category-field-selector',
+                            options=[
+                                {'label': '部位 (part_C)', 'value': 'part_C'},
+                                {'label': '类型 (type_C)', 'value': 'type_C'},
+                                {'label': '单位 (unit_C)', 'value': 'unit_C'}
+                            ],
+                            value='part_C',
+                            clearable=False,
+                            style={'width': '220px'}
+                        )
+                    ], style={'marginBottom': '8px'}),
+                    dcc.Graph(
+                        id='category-breakdown-graph',
+                        style={'height': 'calc(100vh - 230px)'}
+                    )
+                ], style={'marginTop': '12px', 'padding': '0 8px'})
+            ]),
+
+            # 簇质量与纯度 & 特征差异
+            dcc.Tab(label='簇分析', value='cluster-analysis', children=[
+                html.Div([
+                    html.Div([
+                        html.Label('选择簇'),
+                        dcc.Dropdown(id='analysis-cluster-selector', placeholder='选择一个簇查看特征差异'),
+                    ], style={'width': '200px', 'marginRight': '12px'}),
+                    html.Div([
+                        html.Label('Top-K 特征'),
+                        dcc.Slider(
+                            id='feature-topk-slider', min=3, max=20, step=1, value=8,
+                            marks={3: '3', 5: '5', 8: '8', 12: '12', 16: '16', 20: '20'},
+                            tooltip={'placement': 'bottom', 'always_visible': False}
+                        )
+                    ], style={'flex': '1', 'minWidth': '240px'}),
+                ], style={'display': 'flex', 'alignItems': 'center', 'gap': '12px', 'marginBottom': '12px', 'padding': '0 8px'}),
+                html.Div([
+                    html.Div(id='cluster-quality-table', style={'flex': '1', 'minWidth': '320px', 'padding': '0 8px'}),
+                    html.Div(
+                        dcc.Loading(id='feature-diff-loading', type='default', children=dcc.Graph(id='feature-diff-graph', style={'height': '420px'})),
+                        style={'flex': '1', 'minWidth': '320px', 'padding': '0 8px'}
+                    )
+                ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'alignItems': 'flex-start'})
+            ]),
+
+            # 代表样本网格选项卡
+            dcc.Tab(label='代表样本', value='representatives', children=[
+                html.Div([
+                    html.Div([
+                        html.Label('每簇展示张数'),
+                        dcc.Slider(
+                            id='rep-samples-per-cluster',
+                            min=1,
+                            max=12,
+                            step=1,
+                            value=3,
+                            marks={i: str(i) for i in [1, 2, 3, 4, 6, 8, 10, 12]},
+                            tooltip={'placement': 'bottom', 'always_visible': False},
+                        )
+                    ], style={'marginBottom': '8px'}),
+                    dcc.Loading(
+                        id='rep-grid-loading',
+                        type='default',
+                        children=html.Div(id='representative-grid', style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '12px'})
+                    )
+                ], style={'marginTop': '12px', 'padding': '0 8px'})
             ]),
         ]),
         
@@ -871,10 +977,16 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         """
         function(hover_state, figure) {
             if (!figure) return figure;
-            
+
+            const has3d = figure.data && figure.data.some(t => t.type === 'scatter3d');
+            // 3D 下不做透明度变更，直接保持现有 figure，避免触发相机重置
+            if (has3d) {
+                return window.dash_clientside.no_update;
+            }
+
             const hovered_cluster = hover_state ? hover_state.hovered_cluster : null;
             const new_figure = JSON.parse(JSON.stringify(figure));
-            
+
             if (new_figure.data) {
                 new_figure.data.forEach(trace => {
                     if (hovered_cluster !== null && hovered_cluster !== undefined) {
@@ -888,7 +1000,7 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                     }
                 });
             }
-            
+
             return new_figure;
         }
         """,
@@ -1123,6 +1235,9 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         # 根据维度设置不同的点大小（保持2D的设置）
         if selected_dimension == 2:
             fig.update_traces(marker={'size': 8})
+
+        # 保持用户交互状态（如3D相机角度），避免每次回调重置
+        fig.update_layout(uirevision='tsne-plot')
         
         # 保存当前使用的降维参数
         params = data_store.get('params', {})
@@ -1288,8 +1403,6 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                             alt = search_with_name(f"{name}{side}{ext}")
                             if alt:
                                 return alt
-
-            print(f"[WARN] image not found. name={name}, tried_dir={fb_dir}")
             return fb_dir / name  # 返回一个可预测路径以便后续检测
 
         # 优先使用表里的 image_path（build_table 生成），否则用 image_col；若仍是文件名则退回图像根目录
@@ -1435,10 +1548,11 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         Input('compare-add', 'n_clicks'),
         Input('compare-clear', 'n_clicks'),
         Input('compare-clear-bottom', 'n_clicks'),
+        Input({'type': 'compare-remove', 'index': ALL}, 'n_clicks'),
         State('compare-selected-store', 'data'),
         State('last-selected-store', 'data')
     )
-    def update_compare_store(add_clicks, clear_clicks, clear_clicks_bottom, selected_items, last_selected):
+    def update_compare_store(add_clicks, clear_clicks, clear_clicks_bottom, remove_clicks, selected_items, last_selected):
         selected_items = selected_items or []
         ctx = dash.callback_context
         if not ctx.triggered:
@@ -1446,6 +1560,15 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         triggered = ctx.triggered[0]['prop_id'].split('.')[0]
         if triggered in ('compare-clear', 'compare-clear-bottom'):
             return []
+        # 处理卡片上的移除按钮
+        if triggered.startswith('{'):
+            try:
+                info = json.loads(triggered)
+            except ValueError:
+                info = {}
+            if info.get('type') == 'compare-remove':
+                target_id = str(info.get('index', ''))
+                return [c for c in selected_items if str(c.get('sample_id')) != target_id]
         if triggered == 'compare-add':
             if not last_selected or not last_selected.get('sample_id'):
                 return selected_items
@@ -1480,8 +1603,21 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                     style={'height': f'{img_h}px', 'border': '1px solid #ccc', 'borderRadius': '4px', 'backgroundColor': '#fafafa'},
                     **({'data-image-path': Path(pth).name} if pth else {})
                 ),
-                html.Div(item.get('name', '未知'), style={'marginTop': '6px', 'fontSize': '13px', 'fontWeight': '500'})
-            ], style={'width': f'{card_w}px'}))
+                html.Div(item.get('name', '未知'), style={'marginTop': '6px', 'fontSize': '13px', 'fontWeight': '500'}),
+                html.Button(
+                    '移除',
+                    id={'type': 'compare-remove', 'index': str(item.get('sample_id', ''))},
+                    n_clicks=0,
+                    style={
+                        'marginTop': '8px',
+                        'padding': '4px 10px',
+                        'border': '1px solid #ccc',
+                        'borderRadius': '4px',
+                        'backgroundColor': '#f8f8f8',
+                        'cursor': 'pointer'
+                    }
+                )
+            ], style={'width': f'{card_w}px', 'display': 'flex', 'flexDirection': 'column', 'alignItems': 'center', 'gap': '4px'}))
 
         container_style = {
             'display': 'flex',
@@ -1716,6 +1852,476 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
 
 
 
+    # 簇规模分布图
+    @app.callback(
+        Output('cluster-size-graph', 'figure'),
+        [Input('visualization-tabs', 'value'),
+         Input('cluster-filter', 'value'),
+         Input('unit-filter', 'value'),
+         Input('part-filter', 'value'),
+         Input('type-filter', 'value')],
+        State('data-store', 'data')
+    )
+    @cache_plot_result
+    def render_cluster_size(tab_value, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+        if tab_value != 'cluster-size' or data_store is None:
+            return dash.no_update
+
+        df = pd.read_json(StringIO(data_store['df']), orient='split')
+        cluster_col = data_store['cluster_col']
+
+        dff = df.copy()
+        if selected_clusters:
+            dff = dff[dff[cluster_col].isin(selected_clusters)]
+        if selected_units and 'unit_C' in dff.columns:
+            dff = dff[dff['unit_C'].isin(selected_units)]
+        if selected_parts and 'part_C' in dff.columns:
+            dff = dff[dff['part_C'].isin(selected_parts)]
+        if selected_types and 'type_C' in dff.columns:
+            dff = dff[dff['type_C'].isin(selected_types)]
+
+        if len(dff) == 0 or cluster_col not in dff.columns:
+            empty_fig = px.bar(title='暂无数据')
+            empty_fig.update_layout(margin=dict(l=30, r=20, t=40, b=40))
+            return empty_fig
+
+        counts = dff[cluster_col].value_counts().sort_index()
+        plot_df = counts.reset_index()
+        plot_df.columns = ['cluster', 'count']
+        plot_df['cluster_label'] = plot_df['cluster'].astype(str)
+
+        def to_int_or_index(lbl, fallback_idx):
+            try:
+                return int(float(lbl))
+            except Exception:
+                return fallback_idx
+
+        color_map = {}
+        for i, lbl in enumerate(plot_df['cluster_label']):
+            color_idx = to_int_or_index(lbl, i) % len(CLUSTER_COLORS)
+            color_map[lbl] = CLUSTER_COLORS[color_idx]
+
+        fig = px.bar(
+            plot_df,
+            x='cluster_label',
+            y='count',
+            text='count',
+            color='cluster_label',
+            color_discrete_map=color_map
+        )
+        fig.update_traces(textposition='outside')
+        fig.update_layout(
+            title=f"簇规模分布｜样本 {len(dff)}，簇 {len(counts)}",
+            xaxis_title='簇 ID',
+            yaxis_title='样本数',
+            bargap=0.3,
+            showlegend=False,
+            margin=dict(l=40, r=30, t=60, b=80)
+        )
+        return fig
+
+
+    # 聚类质量指标卡
+    @app.callback(
+        Output('cluster-quality-cards', 'children'),
+        [Input('visualization-tabs', 'value'),
+         Input('cluster-filter', 'value'),
+         Input('unit-filter', 'value'),
+         Input('part-filter', 'value'),
+         Input('type-filter', 'value')],
+        State('data-store', 'data')
+    )
+    @cache_plot_result
+    def render_cluster_quality(tab_value, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+        if tab_value != 'cluster-quality' or data_store is None:
+            return dash.no_update
+
+        df = pd.read_json(StringIO(data_store['df']), orient='split')
+        cluster_col = data_store['cluster_col']
+        feature_cols = data_store.get('feature_cols', [])
+
+        dff = df.copy()
+        if selected_clusters:
+            dff = dff[dff[cluster_col].isin(selected_clusters)]
+        if selected_units and 'unit_C' in dff.columns:
+            dff = dff[dff['unit_C'].isin(selected_units)]
+        if selected_parts and 'part_C' in dff.columns:
+            dff = dff[dff['part_C'].isin(selected_parts)]
+        if selected_types and 'type_C' in dff.columns:
+            dff = dff[dff['type_C'].isin(selected_types)]
+
+        if not feature_cols or cluster_col not in dff.columns or len(dff) < 3:
+            return html.Div('暂无足够数据计算指标', style={'color': '#666', 'padding': '8px'})
+
+        dff = dff.dropna(subset=feature_cols)
+        if len(dff) < 3:
+            return html.Div('样本过少，无法计算指标', style={'color': '#666', 'padding': '8px'})
+
+        X = dff[feature_cols].values
+        labels = dff[cluster_col].values
+
+        if len(np.unique(labels)) < 2:
+            return html.Div('簇数不足 2，无法计算指标', style={'color': '#666', 'padding': '8px'})
+
+        max_samples = 3000
+        if len(X) > max_samples:
+            sample_idx = np.random.default_rng(42).choice(len(X), size=max_samples, replace=False)
+            X = X[sample_idx]
+            labels = labels[sample_idx]
+
+        from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
+
+        def safe_metric(fn, default=np.nan):
+            try:
+                return float(fn(X, labels))
+            except Exception:
+                return default
+
+        sil = safe_metric(silhouette_score)
+        ch = safe_metric(calinski_harabasz_score)
+        db = safe_metric(davies_bouldin_score)
+
+        def card(title, value, hint):
+            txt = '无法计算' if np.isnan(value) else f"{value:.4f}"
+            return html.Div([
+                html.Div(title, style={'fontSize': '13px', 'color': '#666', 'marginBottom': '6px'}),
+                html.Div(txt, style={'fontSize': '22px', 'fontWeight': '600'}),
+                html.Div(hint, style={'fontSize': '12px', 'color': '#888', 'marginTop': '4px'})
+            ], style={
+                'padding': '12px 14px',
+                'border': '1px solid #e0e0e0',
+                'borderRadius': '8px',
+                'minWidth': '180px',
+                'backgroundColor': '#fafafa'
+            })
+
+        cards = [
+            card('Silhouette', sil, '越接近 1 越好'),
+            card('Calinski-Harabasz', ch, '越大越好'),
+            card('Davies-Bouldin', db, '越低越好')
+        ]
+
+        summary = html.Div(
+            f"样本 {len(X)}｜簇 {len(np.unique(labels))}",
+            style={'fontSize': '13px', 'color': '#555', 'marginBottom': '8px'}
+        )
+
+        return [summary] + cards
+
+
+    # 类别构成图（按簇堆叠）
+    @app.callback(
+        Output('category-breakdown-graph', 'figure'),
+        [Input('visualization-tabs', 'value'),
+         Input('category-field-selector', 'value'),
+         Input('cluster-filter', 'value'),
+         Input('unit-filter', 'value'),
+         Input('part-filter', 'value'),
+         Input('type-filter', 'value')],
+        State('data-store', 'data')
+    )
+    @cache_plot_result
+    def render_category_breakdown(tab_value, category_field, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+        if tab_value != 'category-breakdown' or data_store is None:
+            return dash.no_update
+
+        df = pd.read_json(StringIO(data_store['df']), orient='split')
+        cluster_col = data_store['cluster_col']
+
+        if category_field not in df.columns:
+            fig = px.bar(title='所选类别字段不存在')
+            fig.update_layout(margin=dict(l=30, r=20, t=40, b=40))
+            return fig
+
+        dff = df.copy()
+        if selected_clusters:
+            dff = dff[dff[cluster_col].isin(selected_clusters)]
+        if selected_units and 'unit_C' in dff.columns:
+            dff = dff[dff['unit_C'].isin(selected_units)]
+        if selected_parts and 'part_C' in dff.columns:
+            dff = dff[dff['part_C'].isin(selected_parts)]
+        if selected_types and 'type_C' in dff.columns:
+            dff = dff[dff['type_C'].isin(selected_types)]
+
+        dff = dff[pd.notna(dff[category_field])]
+
+        if len(dff) == 0 or cluster_col not in dff.columns:
+            empty_fig = px.bar(title='暂无数据')
+            empty_fig.update_layout(margin=dict(l=30, r=20, t=40, b=40))
+            return empty_fig
+
+        grouped = (
+            dff
+            .groupby([cluster_col, category_field])
+            .size()
+            .reset_index(name='count')
+        )
+
+        grouped['cluster_label'] = grouped[cluster_col].astype(str)
+        grouped = grouped.sort_values([cluster_col, category_field])
+
+        fig = px.bar(
+            grouped,
+            x='cluster_label',
+            y='count',
+            color=category_field,
+            text='count',
+            barmode='stack'
+        )
+        fig.update_traces(textposition='outside', cliponaxis=False)
+        fig.update_layout(
+            title=f"类别构成（{category_field}）｜样本 {len(dff)}，簇 {grouped[cluster_col].nunique()}",
+            xaxis_title='簇 ID',
+            yaxis_title='样本数',
+            bargap=0.25,
+            margin=dict(l=40, r=30, t=60, b=80),
+            legend_title=category_field
+        )
+        return fig
+
+
+    # 簇质量与纯度表 + 特征差异 Top-K
+    @app.callback(
+        [Output('cluster-quality-table', 'children'),
+         Output('feature-diff-graph', 'figure'),
+         Output('analysis-cluster-selector', 'options'),
+         Output('analysis-cluster-selector', 'value')],
+        [Input('visualization-tabs', 'value'),
+         Input('analysis-cluster-selector', 'value'),
+         Input('feature-topk-slider', 'value'),
+         Input('cluster-filter', 'value'),
+         Input('unit-filter', 'value'),
+         Input('part-filter', 'value'),
+         Input('type-filter', 'value')],
+        State('data-store', 'data')
+    )
+    @cache_plot_result
+    def render_cluster_analysis(tab_value, selected_cluster, topk, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+        if tab_value != 'cluster-analysis' or data_store is None:
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+        df = pd.read_json(StringIO(data_store['df']), orient='split')
+        cluster_col = data_store['cluster_col']
+        feature_cols = data_store.get('feature_cols', [])
+
+        dff = df.copy()
+        if selected_clusters:
+            dff = dff[dff[cluster_col].isin(selected_clusters)]
+        if selected_units and 'unit_C' in dff.columns:
+            dff = dff[dff['unit_C'].isin(selected_units)]
+        if selected_parts and 'part_C' in dff.columns:
+            dff = dff[dff['part_C'].isin(selected_parts)]
+        if selected_types and 'type_C' in dff.columns:
+            dff = dff[dff['type_C'].isin(selected_types)]
+
+        if cluster_col not in dff.columns or len(dff) == 0:
+            empty_fig = px.bar(title='暂无数据')
+            return html.Div('暂无数据'), empty_fig, [], None
+
+        clusters = sorted(dff[cluster_col].dropna().unique())
+        options = [{'label': str(c), 'value': c} for c in clusters]
+        if selected_cluster not in clusters:
+            selected_cluster = clusters[0] if clusters else None
+
+        # 纯度字段：优先 part_C, 其次 type_C, unit_C
+        purity_field = None
+        for cand in ['part_C', 'type_C', 'unit_C']:
+            if cand in dff.columns and dff[cand].notna().any():
+                purity_field = cand
+                break
+
+        # 计算簇规模
+        size_series = dff[cluster_col].value_counts().sort_index()
+
+        # 计算簇内纯度
+        purity_data = {}
+        if purity_field:
+            grp = dff[[cluster_col, purity_field]].dropna().groupby(cluster_col)[purity_field]
+            for cid, series in grp:
+                vc = series.value_counts(normalize=True)
+                purity = float(vc.iloc[0]) if len(vc) > 0 else np.nan
+                top_label = str(vc.index[0]) if len(vc) > 0 else ''
+                purity_data[cid] = (purity, top_label)
+        else:
+            purity_data = {cid: (np.nan, '') for cid in clusters}
+
+        # 计算每个样本的轮廓系数，再聚合到簇
+        sil_means = {cid: np.nan for cid in clusters}
+        if feature_cols and len(feature_cols) > 1 and len(dff) >= 3 and len(clusters) >= 2:
+            try:
+                work = dff.dropna(subset=feature_cols)
+                X = work[feature_cols].values
+                labels = work[cluster_col].values
+                if len(np.unique(labels)) >= 2 and len(X) >= 3:
+                    from sklearn.metrics import silhouette_samples
+                    # 控制规模
+                    max_samples = 4000
+                    if len(X) > max_samples:
+                        idx = np.random.default_rng(42).choice(len(X), size=max_samples, replace=False)
+                        X = X[idx]
+                        labels = labels[idx]
+                    sil_samples = silhouette_samples(X, labels, metric='euclidean')
+                    for cid in np.unique(labels):
+                        mask = labels == cid
+                        if np.any(mask):
+                            sil_means[cid] = float(np.mean(sil_samples[mask]))
+            except Exception:
+                pass
+
+        # 生成表格数据
+        rows = []
+        for cid in clusters:
+            size = int(size_series.get(cid, 0))
+            purity, top_lbl = purity_data.get(cid, (np.nan, ''))
+            sil = sil_means.get(cid, np.nan)
+            rows.append((cid, size, purity, top_lbl, sil))
+
+        rows.sort(key=lambda x: -x[1])
+
+        def fmt(v):
+            if isinstance(v, float):
+                return f"{v:.3f}" if not np.isnan(v) else '-'
+            return str(v)
+
+        table = html.Table([
+            html.Thead(html.Tr([
+                html.Th('簇'), html.Th('规模'), html.Th('纯度'), html.Th('主类别'), html.Th('簇内轮廓')
+            ])),
+            html.Tbody([
+                html.Tr([
+                    html.Td(str(cid)),
+                    html.Td(size),
+                    html.Td(fmt(purity)),
+                    html.Td(top_lbl),
+                    html.Td(fmt(sil))
+                ]) for cid, size, purity, top_lbl, sil in rows
+            ])
+        ], style={'width': '100%', 'borderCollapse': 'collapse'})
+
+        # 特征差异 top-k（簇中心 vs 全局均值）
+        topk = int(topk or 5)
+        topk = max(3, min(30, topk))
+        feat_fig = px.bar(title='特征差异')
+        if feature_cols and selected_cluster is not None:
+            try:
+                cluster_center = dff[dff[cluster_col] == selected_cluster][feature_cols].mean().values
+                global_center = dff[feature_cols].mean().values
+                diff = cluster_center - global_center
+                abs_diff = np.abs(diff)
+                idx = np.argsort(abs_diff)[-topk:][::-1]
+                data = {
+                    'feature': [feature_cols[i] for i in idx],
+                    'delta': [float(diff[i]) for i in idx]
+                }
+                feat_fig = px.bar(data, x='feature', y='delta', title=f"簇 {selected_cluster} 特征差异 Top-{topk}")
+                feat_fig.update_layout(margin=dict(l=40, r=30, t=60, b=120))
+                feat_fig.update_traces(marker_color='#3366cc')
+            except Exception:
+                feat_fig = px.bar(title='特征差异计算失败')
+
+        return table, feat_fig, options, selected_cluster
+
+
+    # 代表样本网格（按簇显示）
+    @app.callback(
+        Output('representative-grid', 'children'),
+        [Input('visualization-tabs', 'value'),
+         Input('rep-samples-per-cluster', 'value'),
+         Input('cluster-filter', 'value'),
+         Input('unit-filter', 'value'),
+         Input('part-filter', 'value'),
+         Input('type-filter', 'value')],
+        State('data-store', 'data')
+    )
+    def render_representatives(tab_value, samples_per_cluster, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+        if tab_value != 'representatives' or data_store is None:
+            return dash.no_update
+
+        df = pd.read_json(StringIO(data_store['df']), orient='split')
+        cluster_col = data_store['cluster_col']
+        image_col = data_store['image_col']
+
+        dff = df.copy()
+        if selected_clusters:
+            dff = dff[dff[cluster_col].isin(selected_clusters)]
+        if selected_units and 'unit_C' in dff.columns:
+            dff = dff[dff['unit_C'].isin(selected_units)]
+        if selected_parts and 'part_C' in dff.columns:
+            dff = dff[dff['part_C'].isin(selected_parts)]
+        if selected_types and 'type_C' in dff.columns:
+            dff = dff[dff['type_C'].isin(selected_types)]
+
+        if cluster_col not in dff.columns or len(dff) == 0:
+            return html.Div('暂无数据', style={'color': '#666', 'padding': '8px'})
+
+        clusters = sorted(dff[cluster_col].dropna().unique())
+        if len(clusters) == 0:
+            return html.Div('暂无数据', style={'color': '#666', 'padding': '8px'})
+
+        n_per = int(samples_per_cluster or 1)
+        n_per = max(1, min(12, n_per))
+
+        max_total = 200
+        if len(clusters) * n_per > max_total:
+            n_per = max(1, max_total // len(clusters))
+
+        base_root = Path(__file__).parent
+        image_root = base_root / IMAGE_ROOT if not Path(IMAGE_ROOT).is_absolute() else Path(IMAGE_ROOT)
+
+        def resolve_path(val: str):
+            p = Path(str(val))
+            if not p.is_absolute():
+                p = image_root / p
+            if p.exists():
+                return p
+            alt = base_root / 'all_cutouts' / p.name
+            if alt.exists():
+                return alt
+            alt2 = base_root / 'all_kmeans_new' / p.name
+            if alt2.exists():
+                return alt2
+            return p
+
+        cards = []
+        thumb_size = 120
+        for c in clusters:
+            subset = dff[dff[cluster_col] == c].head(n_per)
+            thumbs = []
+            for _, row in subset.iterrows():
+                img_val = row.get('image_name') if 'image_name' in row else row.get(image_col)
+                path = resolve_path(img_val)
+                cache_key = f"rep_thumb_{Path(path).name}_{thumb_size}"
+                b64 = image_cache.get(cache_key) if image_cache else None
+                if b64 is None:
+                    b64 = img_to_base64(path, max_size=thumb_size)
+                    if image_cache and b64:
+                        image_cache.set(cache_key, b64)
+                if b64:
+                    thumbs.append(html.Img(
+                        src=b64,
+                        style={'height': f'{thumb_size}px', 'border': '1px solid #ddd', 'borderRadius': '4px', 'backgroundColor': '#fafafa'},
+                        **{'data-image-path': Path(path).name},
+                        title=str(img_val)
+                    ))
+                else:
+                    thumbs.append(html.Div(str(Path(path).name), style={'fontSize': '12px', 'color': '#999'}))
+
+            if len(thumbs) == 0:
+                thumbs.append(html.Div('无可用图片', style={'fontSize': '12px', 'color': '#999'}))
+
+            cards.append(html.Div([
+                html.Div(f"簇 {c}", style={'fontSize': '13px', 'fontWeight': '600', 'marginBottom': '6px'}),
+                html.Div(thumbs, style={'display': 'flex', 'gap': '6px', 'flexWrap': 'wrap'})
+            ], style={
+                'padding': '10px',
+                'border': '1px solid #e0e0e0',
+                'borderRadius': '8px',
+                'minWidth': '180px',
+                'backgroundColor': '#fff'
+            }))
+
+        return cards
+
 
     # 聚类特征热力图生成
     @app.callback(
@@ -1752,39 +2358,89 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             return html.Div(f'生成热力图时出错: {str(e)}')
 
 
-    # 聚类相似度矩阵生成
+    # 聚类相似度/距离矩阵（基于当前过滤后的簇中心）
     @app.callback(
-        Output('similarity-container', 'children'),
-        Input('visualization-tabs', 'value'),
-        State('cluster-metadata-store', 'data')
+        Output('similarity-graph', 'figure'),
+        [Input('visualization-tabs', 'value'),
+         Input('similarity-metric', 'value'),
+         Input('cluster-filter', 'value'),
+         Input('unit-filter', 'value'),
+         Input('part-filter', 'value'),
+         Input('type-filter', 'value')],
+        State('data-store', 'data')
     )
-    def update_similarity(tab_value, cluster_metadata):
-        if tab_value != 'similarity' or cluster_metadata is None:
-            return html.Div('请选择"聚类相似度矩阵"选项卡')
-        
-        # 显示加载状态
-        loading_div = html.Div([
-            html.H4('正在生成相似度矩阵...'),
-            html.Div(style={'margin': '20px'}),
-            dcc.Loading(type='default', children=html.Div(id='similarity-loading-spinner'))
-        ])
-        
-        try:
-            # 从元数据获取聚类中心
-            cluster_centers = np.array(cluster_metadata.get('cluster_centers', []))
-            if cluster_centers.shape[0] == 0:
-                return html.Div('未找到聚类中心数据')
-            
-            # 优化：只使用前100个特征来计算相似度，减少计算量
-            if cluster_centers.shape[1] > 100:
-                cluster_centers = cluster_centers[:, :100]
-            
-            # 生成相似度矩阵
-            fig = create_cluster_similarity_matrix(cluster_centers)
-            
-            return dcc.Graph(figure=fig)
-        except Exception as e:
-            return html.Div(f'生成相似度矩阵时出错: {str(e)}')
+    @cache_plot_result
+    def update_similarity_matrix(tab_value, metric, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+        if tab_value != 'similarity' or data_store is None:
+            return dash.no_update
+
+        df = pd.read_json(StringIO(data_store['df']), orient='split')
+        cluster_col = data_store['cluster_col']
+        feature_cols = data_store.get('feature_cols', [])
+
+        dff = df.copy()
+        if selected_clusters:
+            dff = dff[dff[cluster_col].isin(selected_clusters)]
+        if selected_units and 'unit_C' in dff.columns:
+            dff = dff[dff['unit_C'].isin(selected_units)]
+        if selected_parts and 'part_C' in dff.columns:
+            dff = dff[dff['part_C'].isin(selected_parts)]
+        if selected_types and 'type_C' in dff.columns:
+            dff = dff[dff['type_C'].isin(selected_types)]
+
+        if cluster_col not in dff.columns or not feature_cols:
+            fig = px.imshow([[0]], title='缺少簇列或特征列')
+            return fig
+
+        # 仅保留特征完整的样本
+        dff = dff.dropna(subset=feature_cols)
+        if len(dff) == 0:
+            fig = px.imshow([[0]], title='暂无数据')
+            return fig
+
+        # 计算每簇中心
+        centers_df = dff.groupby(cluster_col)[feature_cols].mean()
+        clusters = centers_df.index.tolist()
+        centers = centers_df.values
+
+        if centers.shape[0] == 0:
+            fig = px.imshow([[0]], title='暂无簇')
+            return fig
+
+        if metric == 'euclidean':
+            # 欧氏距离矩阵
+            diff = centers[:, None, :] - centers[None, :, :]
+            dist = np.sqrt(np.sum(diff ** 2, axis=2))
+            mat = dist
+            title = f"簇中心距离矩阵｜簇 {len(clusters)}"
+            color_scale = 'Viridis'
+            zmin = None
+            zmax = None
+        else:
+            # 余弦相似度矩阵
+            norm = np.linalg.norm(centers, axis=1, keepdims=True) + 1e-8
+            normed = centers / norm
+            mat = normed @ normed.T
+            title = f"簇中心相似度矩阵｜簇 {len(clusters)}"
+            color_scale = 'RdBu'
+            zmin = -1
+            zmax = 1
+
+        labels = [str(c) for c in clusters]
+        fig = px.imshow(
+            mat,
+            x=labels,
+            y=labels,
+            color_continuous_scale=color_scale,
+            zmin=zmin,
+            zmax=zmax,
+            labels={'x': '簇', 'y': '簇', 'color': '值'}
+        )
+        fig.update_layout(
+            title=title,
+            margin=dict(l=40, r=30, t=60, b=60)
+        )
+        return fig
 
     # 添加原图加载回调
     @app.callback(
