@@ -1,0 +1,3 @@
+from .scatter import register_scatter_callbacks
+from .compare import register_compare_callbacks
+from .cluster_panel import register_cluster_panel_callbacks
