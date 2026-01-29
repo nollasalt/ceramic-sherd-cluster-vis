@@ -98,7 +98,8 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
          Input('dimension-selector', 'value'),
          Input('z-axis-selector', 'value'),
          Input('reload-trigger', 'data')],
-        State('data-store', 'data')
+        State('data-store', 'data'),
+        prevent_initial_call=True
     )
     def update_plot(selected_clusters, selected_units, selected_parts, selected_types,
                     selected_algorithm, selected_dimension, z_axis='dimension',

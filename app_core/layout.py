@@ -143,7 +143,10 @@ def build_layout(
             ]),
             dcc.Tab(label='聚类特征热力图', value='heatmap', children=[
                 html.Div([
-                    html.Div(id='heatmap-container', style={'height': 'calc(100vh - 180px)', 'width': '100%'})
+                    dcc.Loading(
+                        type='default',
+                        children=html.Div(id='heatmap-container', style={'height': 'calc(100vh - 180px)', 'width': '100%'})
+                    )
                 ], style={'marginTop': '12px'})
             ]),
             dcc.Tab(label='聚类相似度矩阵', value='similarity', children=[
@@ -186,17 +189,25 @@ def build_layout(
             ]),
             dcc.Tab(label='簇规模分布', value='cluster-size', children=[
                 html.Div([
-                    dcc.Graph(
-                        id='cluster-size-graph',
-                        style={'height': 'calc(100vh - 200px)'}
+                    dcc.Loading(
+                        type='default',
+                        children=dcc.Graph(
+                            id='cluster-size-graph',
+                            style={'height': 'calc(100vh - 200px)'}
+                        )
                     )
                 ], style={'marginTop': '12px'})
             ]),
             dcc.Tab(label='聚类质量', value='cluster-quality', children=[
                 html.Div([
-                    html.Div(id='cluster-quality-cards', style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '12px'}),
-                    dcc.Graph(id='cluster-quality-bars', style={'height': '380px', 'width': '100%', 'marginBottom': '8px'}),
-                    html.Div(id='cluster-quality-detail', style={'fontSize': '13px', 'color': '#333', 'padding': '0 4px'}),
+                    dcc.Loading(
+                        type='default',
+                        children=html.Div([
+                            html.Div(id='cluster-quality-cards', style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '12px'}),
+                            dcc.Graph(id='cluster-quality-bars', style={'height': '380px', 'width': '100%', 'marginBottom': '8px'}),
+                            html.Div(id='cluster-quality-detail', style={'fontSize': '13px', 'color': '#333', 'padding': '0 4px'})
+                        ])
+                    ),
                     html.Div('颜色指示: 绿=清晰，黄=需关注，红=混杂/易粘连', style={'fontSize': '12px', 'color': '#666', 'marginTop': '4px', 'padding': '0 4px'})
                 ], style={'marginTop': '12px', 'padding': '0 8px'})
             ]),
@@ -228,9 +239,12 @@ def build_layout(
                             labelStyle={'marginRight': '12px'}
                         )
                     ], style={'marginBottom': '8px'}),
-                    dcc.Graph(
-                        id='category-breakdown-graph',
-                        style={'height': 'calc(100vh - 230px)'}
+                    dcc.Loading(
+                        type='default',
+                        children=dcc.Graph(
+                            id='category-breakdown-graph',
+                            style={'height': 'calc(100vh - 230px)'}
+                        )
                     )
                 ], style={'marginTop': '12px', 'padding': '0 8px'})
             ]),

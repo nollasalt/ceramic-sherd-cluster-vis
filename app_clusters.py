@@ -15,7 +15,7 @@ from app_core.callbacks import (
     register_scatter_callbacks,
 )
 from app_core.layout import build_layout
-from app_core.utils import CLUSTER_COLORS
+from app_core.utils import CLUSTER_COLORS, PART_SYMBOL_SEQUENCE, get_part_symbol_settings
 from data_processing import (
     build_samples_for_mode,
     detect_columns,
@@ -72,6 +72,15 @@ def build_initial_figure(df: pd.DataFrame, feature_cols, cluster_col, hover_cols
         min_dist=0.1,
     )
 
+    part_symbol_col, part_symbol_map = get_part_symbol_settings(df_embed)
+    symbol_kwargs = {}
+    if part_symbol_col:
+        symbol_kwargs = {
+            'symbol': part_symbol_col,
+            'symbol_map': part_symbol_map,
+            'symbol_sequence': PART_SYMBOL_SEQUENCE,
+        }
+
     fig = px.scatter(
         df_embed,
         x=f'{reduction_key}_0',
@@ -80,7 +89,8 @@ def build_initial_figure(df: pd.DataFrame, feature_cols, cluster_col, hover_cols
         hover_data=hover_cols,
         custom_data=custom_data,
         color_discrete_sequence=CLUSTER_COLORS,
-        title='降维散点图 (UMAP)'
+        title='降维散点图 (UMAP)',
+        **symbol_kwargs,
     )
     fig.update_traces(marker={'size': 8})
     fig.update_layout(uirevision='tsne-plot')
