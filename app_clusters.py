@@ -13,6 +13,12 @@ import time
 import pandas as pd
 import numpy as np
 import plotly.express as px
+try:
+    from scipy.cluster.hierarchy import linkage, leaves_list
+    from scipy.spatial.distance import squareform
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
 
 import dash
 from dash import dcc, html, Input, Output, State, ALL
@@ -471,12 +477,30 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                             ],
                             value='cosine',
                             labelStyle={'marginRight': '12px'}
-                        )
+                        ),
+                        dcc.Checklist(
+                            id='similarity-options',
+                            options=[
+                                {'label': '层次重排', 'value': 'reorder'},
+                                {'label': '显示数值', 'value': 'annotate'}
+                            ],
+                            value=[],
+                            style={'marginTop': '4px'}
+                        ),
+                        html.Div([
+                            html.Label('最近邻簇数量'),
+                            dcc.Slider(
+                                id='similarity-neighbor-k', min=1, max=10, step=1, value=3,
+                                marks={1: '1', 3: '3', 5: '5', 7: '7', 10: '10'},
+                                tooltip={'placement': 'bottom', 'always_visible': False}
+                            )
+                        ], style={'marginTop': '6px'})
                     ], style={'marginBottom': '8px'}),
                     dcc.Loading(
                         type='default',
-                        children=dcc.Graph(id='similarity-graph', style={'height': 'calc(100vh - 210px)', 'width': '100%'})
-                    )
+                        children=dcc.Graph(id='similarity-graph', style={'height': 'calc(100vh - 240px)', 'width': '100%'})
+                    ),
+                    html.Div(id='nearest-cluster-list', style={'marginTop': '8px', 'fontSize': '13px', 'color': '#333'})
                 ], style={'marginTop': '12px'})
             ]),
 
@@ -493,7 +517,9 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             # 聚类质量指标选项卡
             dcc.Tab(label='聚类质量', value='cluster-quality', children=[
                 html.Div([
-                    html.Div(id='cluster-quality-cards', style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap'})
+                    html.Div(id='cluster-quality-cards', style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '12px'}),
+                    dcc.Graph(id='cluster-quality-bars', style={'height': '380px', 'width': '100%', 'marginBottom': '8px'}),
+                    html.Div(id='cluster-quality-detail', style={'fontSize': '13px', 'color': '#333', 'padding': '0 4px'})
                 ], style={'marginTop': '12px', 'padding': '0 8px'})
             ]),
 
@@ -536,6 +562,18 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                             tooltip={'placement': 'bottom', 'always_visible': False}
                         )
                     ], style={'flex': '1', 'minWidth': '240px'}),
+                    html.Div([
+                        html.Label('差异度量'),
+                        dcc.RadioItems(
+                            id='feature-diff-mode',
+                            options=[
+                                {'label': '均值差', 'value': 'mean'},
+                                {'label': 'z-score', 'value': 'zscore'}
+                            ],
+                            value='mean',
+                            labelStyle={'marginRight': '12px'}
+                        )
+                    ], style={'width': '200px'})
                 ], style={'display': 'flex', 'alignItems': 'center', 'gap': '12px', 'marginBottom': '12px', 'padding': '0 8px'}),
                 html.Div([
                     html.Div(id='cluster-quality-table', style={'flex': '1', 'minWidth': '320px', 'padding': '0 8px'}),
@@ -561,11 +599,36 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                             tooltip={'placement': 'bottom', 'always_visible': False},
                         )
                     ], style={'marginBottom': '8px'}),
+                    html.Div([
+                        html.Label('代表样本选择'),
+                        dcc.RadioItems(
+                            id='rep-strategy',
+                            options=[
+                                {'label': '最近中心', 'value': 'center'},
+                                {'label': '随机', 'value': 'random'}
+                            ],
+                            value='center',
+                            labelStyle={'marginRight': '12px'}
+                        )
+                    ], style={'marginBottom': '8px'}),
+                    html.Div([
+                        html.Label('每簇离群样本数'),
+                        dcc.Slider(
+                            id='outlier-count',
+                            min=1,
+                            max=5,
+                            step=1,
+                            value=2,
+                            marks={1: '1', 2: '2', 3: '3', 4: '4', 5: '5'},
+                            tooltip={'placement': 'bottom', 'always_visible': False}
+                        )
+                    ], style={'marginBottom': '8px'}),
                     dcc.Loading(
                         id='rep-grid-loading',
                         type='default',
                         children=html.Div(id='representative-grid', style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '12px'})
-                    )
+                    ),
+                    html.Div(id='outlier-list', style={'marginTop': '12px', 'fontSize': '13px', 'color': '#333'})
                 ], style={'marginTop': '12px', 'padding': '0 8px'})
             ]),
         ]),
@@ -1901,6 +1964,13 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             color_idx = to_int_or_index(lbl, i) % len(CLUSTER_COLORS)
             color_map[lbl] = CLUSTER_COLORS[color_idx]
 
+        total = int(counts.sum())
+        max_count = int(counts.max()) if len(counts) > 0 else 0
+        max_ratio = max_count / total if total > 0 else 0
+        sorted_counts = counts.sort_values()
+        half = max(1, len(sorted_counts) // 2)
+        tail_share = sorted_counts.head(half).sum() / total if total > 0 else 0
+
         fig = px.bar(
             plot_df,
             x='cluster_label',
@@ -1911,7 +1981,7 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         )
         fig.update_traces(textposition='outside')
         fig.update_layout(
-            title=f"簇规模分布｜样本 {len(dff)}，簇 {len(counts)}",
+            title=f"簇规模分布｜样本 {len(dff)}，簇 {len(counts)}｜最大簇占比 {max_ratio:.2%}｜长尾占比 {tail_share:.2%}",
             xaxis_title='簇 ID',
             yaxis_title='样本数',
             bargap=0.3,
@@ -1924,6 +1994,8 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
     # 聚类质量指标卡
     @app.callback(
         Output('cluster-quality-cards', 'children'),
+        Output('cluster-quality-bars', 'figure'),
+        Output('cluster-quality-detail', 'children'),
         [Input('visualization-tabs', 'value'),
          Input('cluster-filter', 'value'),
          Input('unit-filter', 'value'),
@@ -1934,7 +2006,7 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
     @cache_plot_result
     def render_cluster_quality(tab_value, selected_clusters, selected_units, selected_parts, selected_types, data_store):
         if tab_value != 'cluster-quality' or data_store is None:
-            return dash.no_update
+            return dash.no_update, dash.no_update, dash.no_update
 
         df = pd.read_json(StringIO(data_store['df']), orient='split')
         cluster_col = data_store['cluster_col']
@@ -1951,17 +2023,20 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             dff = dff[dff['type_C'].isin(selected_types)]
 
         if not feature_cols or cluster_col not in dff.columns or len(dff) < 3:
-            return html.Div('暂无足够数据计算指标', style={'color': '#666', 'padding': '8px'})
+            empty = html.Div('暂无足够数据计算指标', style={'color': '#666', 'padding': '8px'})
+            return empty, dash.no_update, dash.no_update
 
         dff = dff.dropna(subset=feature_cols)
         if len(dff) < 3:
-            return html.Div('样本过少，无法计算指标', style={'color': '#666', 'padding': '8px'})
+            empty = html.Div('样本过少，无法计算指标', style={'color': '#666', 'padding': '8px'})
+            return empty, dash.no_update, dash.no_update
 
         X = dff[feature_cols].values
         labels = dff[cluster_col].values
 
         if len(np.unique(labels)) < 2:
-            return html.Div('簇数不足 2，无法计算指标', style={'color': '#666', 'padding': '8px'})
+            empty = html.Div('簇数不足 2，无法计算指标', style={'color': '#666', 'padding': '8px'})
+            return empty, dash.no_update, dash.no_update
 
         max_samples = 3000
         if len(X) > max_samples:
@@ -2006,7 +2081,105 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             style={'fontSize': '13px', 'color': '#555', 'marginBottom': '8px'}
         )
 
-        return [summary] + cards
+        # 细分：每簇轮廓、簇内平均距、簇间最近距
+        compact_df = pd.DataFrame({
+            'cluster': dff[cluster_col],
+            'size': dff.groupby(cluster_col)[cluster_col].transform('count')
+        })
+
+        # silhouette per sample -> per cluster mean
+        from sklearn.metrics import silhouette_samples
+        sil_per_cluster = {}
+        try:
+            max_samples_detail = 4000
+            X_detail = X
+            labels_detail = labels
+            if len(X_detail) > max_samples_detail:
+                idx = np.random.default_rng(42).choice(len(X_detail), size=max_samples_detail, replace=False)
+                X_detail = X_detail[idx]
+                labels_detail = labels_detail[idx]
+            sil_samples = silhouette_samples(X_detail, labels_detail, metric='euclidean')
+            for cid in np.unique(labels_detail):
+                mask = labels_detail == cid
+                if np.any(mask):
+                    sil_per_cluster[cid] = float(np.mean(sil_samples[mask]))
+        except Exception:
+            sil_per_cluster = {}
+
+        # cluster centers and inter distances
+        centers_df = dff.groupby(cluster_col)[feature_cols].mean()
+        centers = centers_df.values
+        center_ids = centers_df.index.to_numpy()
+        inter_min = {}
+        if len(center_ids) > 1:
+            diff = centers[:, None, :] - centers[None, :, :]
+            dist_mat = np.sqrt(np.sum(diff ** 2, axis=2))
+            for i, cid in enumerate(center_ids):
+                mask = np.ones(len(center_ids), dtype=bool)
+                mask[i] = False
+                inter_min[cid] = float(np.min(dist_mat[i][mask])) if np.any(mask) else np.nan
+
+        intra_mean = {}
+        for cid, group in dff.groupby(cluster_col):
+            if len(group) == 0:
+                intra_mean[cid] = np.nan
+                continue
+            center_vec = group[feature_cols].mean().values
+            distances = np.linalg.norm(group[feature_cols].values - center_vec, axis=1)
+            intra_mean[cid] = float(np.mean(distances))
+
+        records = []
+        for cid in sorted(dff[cluster_col].unique()):
+            records.append({
+                'cluster': cid,
+                'size': int((dff[cluster_col] == cid).sum()),
+                'silhouette': sil_per_cluster.get(cid, np.nan),
+                'intra_mean': intra_mean.get(cid, np.nan),
+                'inter_min': inter_min.get(cid, np.nan)
+            })
+
+        detail_df = pd.DataFrame(records)
+        detail_df['cluster_label'] = detail_df['cluster'].astype(str)
+        detail_df['looseness'] = detail_df['intra_mean'] / (detail_df['inter_min'] + 1e-8)
+
+        plot_df = detail_df.sort_values('looseness', ascending=False)
+        bar_fig = px.bar(
+            plot_df,
+            x='cluster_label',
+            y='looseness',
+            text='looseness',
+            labels={'cluster_label': '簇', 'looseness': '松散度（簇内均距 / 最近簇距）'},
+            title='簇松散度与粘连度（越高越松散/易粘连）'
+        )
+        bar_fig.update_traces(texttemplate='%{text:.3f}', textposition='outside')
+        bar_fig.update_layout(margin=dict(l=40, r=30, t=60, b=80), showlegend=False)
+
+        # detail table
+        def fmt_val(v, digits=3):
+            return '-' if pd.isna(v) else f"{v:.{digits}f}"
+
+        table_rows = []
+        header = html.Tr([
+            html.Th('簇'), html.Th('规模'), html.Th('簇内均距'), html.Th('最近簇距'), html.Th('轮廓系数'), html.Th('松散度比')
+        ])
+        for _, row in detail_df.sort_values('looseness', ascending=False).iterrows():
+            table_rows.append(html.Tr([
+                html.Td(str(row['cluster'])),
+                html.Td(str(int(row['size']))),
+                html.Td(fmt_val(row['intra_mean'])),
+                html.Td(fmt_val(row['inter_min'])),
+                html.Td(fmt_val(row['silhouette'])),
+                html.Td(fmt_val(row['looseness']))
+            ]))
+
+        detail_table = html.Table([
+            html.Thead(header),
+            html.Tbody(table_rows)
+        ], style={'borderCollapse': 'collapse', 'width': '100%', 'marginTop': '6px'})
+
+        detail_hint = html.Div('松散度比 = 簇内平均距离 / 最近簇中心距离，越高越可能松散或粘连', style={'color': '#666', 'marginTop': '4px'})
+
+        return [summary] + cards, bar_fig, html.Div([detail_hint, detail_table])
 
 
     # 类别构成图（按簇堆叠）
@@ -2088,6 +2261,7 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
          Output('analysis-cluster-selector', 'value')],
         [Input('visualization-tabs', 'value'),
          Input('analysis-cluster-selector', 'value'),
+         Input('feature-diff-mode', 'value'),
          Input('feature-topk-slider', 'value'),
          Input('cluster-filter', 'value'),
          Input('unit-filter', 'value'),
@@ -2096,7 +2270,7 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         State('data-store', 'data')
     )
     @cache_plot_result
-    def render_cluster_analysis(tab_value, selected_cluster, topk, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+    def render_cluster_analysis(tab_value, selected_cluster, diff_mode, topk, selected_clusters, selected_units, selected_parts, selected_types, data_store):
         if tab_value != 'cluster-analysis' or data_store is None:
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
@@ -2206,14 +2380,20 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             try:
                 cluster_center = dff[dff[cluster_col] == selected_cluster][feature_cols].mean().values
                 global_center = dff[feature_cols].mean().values
-                diff = cluster_center - global_center
+                if diff_mode == 'zscore':
+                    global_std = dff[feature_cols].std(ddof=0).replace(0, np.nan).values
+                    diff = (cluster_center - global_center) / (global_std + 1e-8)
+                    title_mode = 'z-score'
+                else:
+                    diff = cluster_center - global_center
+                    title_mode = '均值差'
                 abs_diff = np.abs(diff)
                 idx = np.argsort(abs_diff)[-topk:][::-1]
                 data = {
                     'feature': [feature_cols[i] for i in idx],
                     'delta': [float(diff[i]) for i in idx]
                 }
-                feat_fig = px.bar(data, x='feature', y='delta', title=f"簇 {selected_cluster} 特征差异 Top-{topk}")
+                feat_fig = px.bar(data, x='feature', y='delta', title=f"簇 {selected_cluster} 特征差异 Top-{topk}（{title_mode}）")
                 feat_fig.update_layout(margin=dict(l=40, r=30, t=60, b=120))
                 feat_fig.update_traces(marker_color='#3366cc')
             except Exception:
@@ -2225,21 +2405,25 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
     # 代表样本网格（按簇显示）
     @app.callback(
         Output('representative-grid', 'children'),
+        Output('outlier-list', 'children'),
         [Input('visualization-tabs', 'value'),
          Input('rep-samples-per-cluster', 'value'),
+         Input('rep-strategy', 'value'),
+         Input('outlier-count', 'value'),
          Input('cluster-filter', 'value'),
          Input('unit-filter', 'value'),
          Input('part-filter', 'value'),
          Input('type-filter', 'value')],
         State('data-store', 'data')
     )
-    def render_representatives(tab_value, samples_per_cluster, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+    def render_representatives(tab_value, samples_per_cluster, strategy, outlier_count, selected_clusters, selected_units, selected_parts, selected_types, data_store):
         if tab_value != 'representatives' or data_store is None:
-            return dash.no_update
+            return dash.no_update, dash.no_update
 
         df = pd.read_json(StringIO(data_store['df']), orient='split')
         cluster_col = data_store['cluster_col']
         image_col = data_store['image_col']
+        feature_cols = data_store.get('feature_cols', [])
 
         dff = df.copy()
         if selected_clusters:
@@ -2252,14 +2436,18 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             dff = dff[dff['type_C'].isin(selected_types)]
 
         if cluster_col not in dff.columns or len(dff) == 0:
-            return html.Div('暂无数据', style={'color': '#666', 'padding': '8px'})
+            empty_div = html.Div('暂无数据', style={'color': '#666', 'padding': '8px'})
+            return empty_div, empty_div
 
         clusters = sorted(dff[cluster_col].dropna().unique())
         if len(clusters) == 0:
-            return html.Div('暂无数据', style={'color': '#666', 'padding': '8px'})
+            empty_div = html.Div('暂无数据', style={'color': '#666', 'padding': '8px'})
+            return empty_div, empty_div
 
         n_per = int(samples_per_cluster or 1)
         n_per = max(1, min(12, n_per))
+        outlier_k = int(outlier_count or 1)
+        outlier_k = max(1, min(5, outlier_k))
 
         max_total = 200
         if len(clusters) * n_per > max_total:
@@ -2283,11 +2471,30 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             return p
 
         cards = []
+        outlier_blocks = []
         thumb_size = 120
         for c in clusters:
-            subset = dff[dff[cluster_col] == c].head(n_per)
+            subset_all = dff[dff[cluster_col] == c]
+            subset_feat = subset_all.dropna(subset=feature_cols) if feature_cols else subset_all
+
+            # Representative selection
+            chosen = subset_all
+            if strategy == 'center' and feature_cols and len(subset_feat) > 0:
+                center_vec = subset_feat[feature_cols].mean().values
+                distances = np.linalg.norm(subset_feat[feature_cols].values - center_vec, axis=1)
+                subset_feat = subset_feat.assign(_dist=distances)
+                chosen = subset_feat.nsmallest(n_per, '_dist')
+            elif strategy == 'random':
+                chosen = subset_all.sample(n=min(n_per, len(subset_all)), random_state=42) if len(subset_all) > 0 else subset_all
+            else:
+                chosen = subset_all.head(n_per)
+
+            if len(chosen) < n_per and len(subset_all) > len(chosen):
+                extra = subset_all.drop(chosen.index, errors='ignore').head(n_per - len(chosen))
+                chosen = pd.concat([chosen, extra])
+
             thumbs = []
-            for _, row in subset.iterrows():
+            for _, row in chosen.head(n_per).iterrows():
                 img_val = row.get('image_name') if 'image_name' in row else row.get(image_col)
                 path = resolve_path(img_val)
                 cache_key = f"rep_thumb_{Path(path).name}_{thumb_size}"
@@ -2320,7 +2527,37 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                 'backgroundColor': '#fff'
             }))
 
-        return cards
+            # Outlier list (farthest from center)
+            if feature_cols and len(subset_feat) > 0:
+                center_vec = subset_feat[feature_cols].mean().values
+                distances = np.linalg.norm(subset_feat[feature_cols].values - center_vec, axis=1)
+                subset_feat = subset_feat.assign(_dist=distances)
+                outliers = subset_feat.nlargest(outlier_k, '_dist')
+                items = []
+                for _, r in outliers.iterrows():
+                    img_val = r.get('image_name') if 'image_name' in r else r.get(image_col)
+                    path = resolve_path(img_val)
+                    cache_key = f"outlier_thumb_{Path(path).name}_{thumb_size}"
+                    b64 = image_cache.get(cache_key) if image_cache else None
+                    if b64 is None:
+                        b64 = img_to_base64(path, max_size=thumb_size)
+                        if image_cache and b64:
+                            image_cache.set(cache_key, b64)
+                    label_text = f"样本 {r.get('sample_id', img_val)}｜距离 {r['_dist']:.3f}"
+                    thumb = html.Img(src=b64, style={'height': '60px', 'border': '1px solid #ddd', 'borderRadius': '4px', 'marginRight': '6px'}) if b64 else None
+                    items.append(html.Li([
+                        thumb if thumb else html.Span(str(Path(path).name), style={'marginRight': '6px'}),
+                        html.Span(label_text)
+                    ], style={'display': 'flex', 'alignItems': 'center', 'gap': '6px', 'marginBottom': '4px'}))
+                outlier_blocks.append(html.Div([
+                    html.Div(f"簇 {c} 离群样本", style={'fontSize': '13px', 'fontWeight': '600', 'marginBottom': '4px'}),
+                    html.Ul(items, style={'paddingLeft': '16px', 'marginTop': '0', 'marginBottom': '8px'})
+                ], style={'marginBottom': '8px'}))
+
+        if len(outlier_blocks) == 0:
+            outlier_blocks = html.Div('缺少特征列，无法计算离群样本', style={'color': '#666', 'padding': '4px'})
+
+        return cards, outlier_blocks
 
 
     # 聚类特征热力图生成
@@ -2361,8 +2598,11 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
     # 聚类相似度/距离矩阵（基于当前过滤后的簇中心）
     @app.callback(
         Output('similarity-graph', 'figure'),
+        Output('nearest-cluster-list', 'children'),
         [Input('visualization-tabs', 'value'),
          Input('similarity-metric', 'value'),
+         Input('similarity-options', 'value'),
+         Input('similarity-neighbor-k', 'value'),
          Input('cluster-filter', 'value'),
          Input('unit-filter', 'value'),
          Input('part-filter', 'value'),
@@ -2370,9 +2610,15 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         State('data-store', 'data')
     )
     @cache_plot_result
-    def update_similarity_matrix(tab_value, metric, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+    def update_similarity_matrix(tab_value, metric, options, neighbor_k, selected_clusters, selected_units, selected_parts, selected_types, data_store):
         if tab_value != 'similarity' or data_store is None:
-            return dash.no_update
+            return dash.no_update, dash.no_update
+
+        metric = metric or 'cosine'
+        options = options or []
+        annotate = 'annotate' in options
+        reorder_requested = 'reorder' in options
+        neighbor_k = int(neighbor_k or 3)
 
         df = pd.read_json(StringIO(data_store['df']), orient='split')
         cluster_col = data_store['cluster_col']
@@ -2390,43 +2636,66 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
 
         if cluster_col not in dff.columns or not feature_cols:
             fig = px.imshow([[0]], title='缺少簇列或特征列')
-            return fig
+            return fig, ""
 
         # 仅保留特征完整的样本
         dff = dff.dropna(subset=feature_cols)
         if len(dff) == 0:
             fig = px.imshow([[0]], title='暂无数据')
-            return fig
+            return fig, ""
 
         # 计算每簇中心
         centers_df = dff.groupby(cluster_col)[feature_cols].mean()
-        clusters = centers_df.index.tolist()
+        clusters = centers_df.index.to_numpy()
         centers = centers_df.values
 
         if centers.shape[0] == 0:
             fig = px.imshow([[0]], title='暂无簇')
-            return fig
+            return fig, ""
 
+        # 计算矩阵
         if metric == 'euclidean':
-            # 欧氏距离矩阵
             diff = centers[:, None, :] - centers[None, :, :]
             dist = np.sqrt(np.sum(diff ** 2, axis=2))
             mat = dist
+            neighbor_matrix = dist
+            neighbor_is_distance = True
             title = f"簇中心距离矩阵｜簇 {len(clusters)}"
             color_scale = 'Viridis'
             zmin = None
             zmax = None
         else:
-            # 余弦相似度矩阵
             norm = np.linalg.norm(centers, axis=1, keepdims=True) + 1e-8
             normed = centers / norm
-            mat = normed @ normed.T
+            sim = normed @ normed.T
+            mat = sim
+            neighbor_matrix = sim
+            neighbor_is_distance = False
             title = f"簇中心相似度矩阵｜簇 {len(clusters)}"
             color_scale = 'RdBu'
             zmin = -1
             zmax = 1
 
-        labels = [str(c) for c in clusters]
+        labels = np.array([str(c) for c in clusters])
+
+        # 层次重排（仅在 SciPy 可用时启用）
+        reordered = False
+        if reorder_requested and SCIPY_AVAILABLE and len(labels) > 1:
+            try:
+                if neighbor_is_distance:
+                    dist_mat = neighbor_matrix
+                else:
+                    sim01 = (neighbor_matrix + 1) / 2
+                    dist_mat = 1 - sim01
+                condensed = squareform(dist_mat, checks=False)
+                order = leaves_list(linkage(condensed, method='average'))
+                mat = mat[np.ix_(order, order)]
+                neighbor_matrix = neighbor_matrix[np.ix_(order, order)]
+                labels = labels[order]
+                reordered = True
+            except Exception:
+                reordered = False
+
         fig = px.imshow(
             mat,
             x=labels,
@@ -2436,11 +2705,37 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             zmax=zmax,
             labels={'x': '簇', 'y': '簇', 'color': '值'}
         )
+        title_suffix = '（已重排）' if reordered else ''
         fig.update_layout(
-            title=title,
+            title=f"{title}{title_suffix}",
             margin=dict(l=40, r=30, t=60, b=60)
         )
-        return fig
+        fig.update_xaxes(side='top')
+        fig.update_yaxes(autorange='reversed')
+
+        if annotate:
+            text = np.round(mat, 3)
+            fig.update_traces(text=text, texttemplate="%{text}")
+
+        # 最近邻簇列表
+        if neighbor_matrix.shape[0] > 1:
+            k = max(1, min(neighbor_k, neighbor_matrix.shape[0] - 1))
+            nearest_children = []
+            for i, cid in enumerate(labels):
+                if neighbor_is_distance:
+                    order = np.argsort(neighbor_matrix[i])
+                    nearest_idx = [idx for idx in order if idx != i][:k]
+                    neighbors = [f"{labels[j]}（距离 {neighbor_matrix[i][j]:.3f}）" for j in nearest_idx]
+                else:
+                    order = np.argsort(-neighbor_matrix[i])
+                    nearest_idx = [idx for idx in order if idx != i][:k]
+                    neighbors = [f"{labels[j]}（相似度 {neighbor_matrix[i][j]:.3f}）" for j in nearest_idx]
+                nearest_children.append(html.Li(f"簇 {cid}: " + ", ".join(neighbors)))
+            nearest_list = html.Ul(nearest_children)
+        else:
+            nearest_list = ""
+
+        return fig, nearest_list
 
     # 添加原图加载回调
     @app.callback(
