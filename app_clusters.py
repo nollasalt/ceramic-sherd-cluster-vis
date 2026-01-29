@@ -519,7 +519,8 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                 html.Div([
                     html.Div(id='cluster-quality-cards', style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '12px'}),
                     dcc.Graph(id='cluster-quality-bars', style={'height': '380px', 'width': '100%', 'marginBottom': '8px'}),
-                    html.Div(id='cluster-quality-detail', style={'fontSize': '13px', 'color': '#333', 'padding': '0 4px'})
+                    html.Div(id='cluster-quality-detail', style={'fontSize': '13px', 'color': '#333', 'padding': '0 4px'}),
+                    html.Div('颜色指示: 绿=清晰，黄=需关注，红=混杂/易粘连', style={'fontSize': '12px', 'color': '#666', 'marginTop': '4px', 'padding': '0 4px'})
                 ], style={'marginTop': '12px', 'padding': '0 8px'})
             ]),
 
@@ -2142,14 +2143,28 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         detail_df['cluster_label'] = detail_df['cluster'].astype(str)
         detail_df['looseness'] = detail_df['intra_mean'] / (detail_df['inter_min'] + 1e-8)
 
+        # 视觉状态：松散/紧凑
+        def status_color(looseness, sil):
+            if pd.isna(looseness):
+                return '#cccccc'
+            if looseness < 0.3 and (pd.isna(sil) or sil >= 0.2):
+                return '#4caf50'  # green, clear
+            if looseness < 0.6 or (not pd.isna(sil) and sil >= 0.0):
+                return '#ffb300'  # amber, watch
+            return '#e53935'      # red, mixed
+
+        detail_df['status_color'] = detail_df.apply(lambda r: status_color(r['looseness'], r['silhouette']), axis=1)
+
         plot_df = detail_df.sort_values('looseness', ascending=False)
         bar_fig = px.bar(
             plot_df,
             x='cluster_label',
             y='looseness',
             text='looseness',
-            labels={'cluster_label': '簇', 'looseness': '松散度（簇内均距 / 最近簇距）'},
-            title='簇松散度与粘连度（越高越松散/易粘连）'
+            color='status_color',
+            color_discrete_map='identity',
+            labels={'cluster_label': '簇', 'looseness': '松散度（越低越紧凑）'},
+            title='簇紧凑度/黏连风险（颜色：绿=清晰，黄=需关注，红=混杂）'
         )
         bar_fig.update_traces(texttemplate='%{text:.3f}', textposition='outside')
         bar_fig.update_layout(margin=dict(l=40, r=30, t=60, b=80), showlegend=False)
@@ -2163,6 +2178,7 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             html.Th('簇'), html.Th('规模'), html.Th('簇内均距'), html.Th('最近簇距'), html.Th('轮廓系数'), html.Th('松散度比')
         ])
         for _, row in detail_df.sort_values('looseness', ascending=False).iterrows():
+            color = row['status_color'] if pd.notna(row['status_color']) else '#cccccc'
             table_rows.append(html.Tr([
                 html.Td(str(row['cluster'])),
                 html.Td(str(int(row['size']))),
@@ -2170,14 +2186,17 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                 html.Td(fmt_val(row['inter_min'])),
                 html.Td(fmt_val(row['silhouette'])),
                 html.Td(fmt_val(row['looseness']))
-            ]))
+            ], style={'backgroundColor': '#fdfdfd', 'borderLeft': f'6px solid {color}'}))
 
         detail_table = html.Table([
             html.Thead(header),
             html.Tbody(table_rows)
         ], style={'borderCollapse': 'collapse', 'width': '100%', 'marginTop': '6px'})
 
-        detail_hint = html.Div('松散度比 = 簇内平均距离 / 最近簇中心距离，越高越可能松散或粘连', style={'color': '#666', 'marginTop': '4px'})
+        detail_hint = html.Div(
+            '颜色含义：绿=簇紧凑且与邻簇分开；黄=轻微分散或稍粘连；红=分散或与邻簇混杂。松散度比 = 簇内平均距离 / 最近簇中心距离，越低越清晰。',
+            style={'color': '#666', 'marginTop': '4px'}
+        )
 
         return [summary] + cards, bar_fig, html.Div([detail_hint, detail_table])
 
