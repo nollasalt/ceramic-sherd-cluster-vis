@@ -350,6 +350,7 @@ def build_layout(
             'cluster_col': cluster_col,
             'image_col': image_col,
             'cluster_mode': initial_cluster_mode,
+            'params': {},
             'version': 0
         }),
         dcc.Store(id='reload-trigger', data=0),
