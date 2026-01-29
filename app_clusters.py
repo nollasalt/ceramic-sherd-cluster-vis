@@ -377,24 +377,23 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             # 散点图选项卡
             dcc.Tab(label='散点图', value='scatter', children=[
                 html.Div([
-                    # 第一行：主要降维参数
+                    # 第一行：主要降维参数（紧凑排版）
                     html.Div([
                         html.Div([
                             html.Label('降维算法:'),
                             dcc.Dropdown(id='algorithm-selector', options=algorithm_options, value='umap'),
-                        ], style={'width': '20%', 'display': 'inline-block', 'marginBottom': '8px', 'marginRight': '15px'}),
+                        ], style={'width': '200px'}),
                         html.Div([
                             html.Label('可视化维度:'),
                             dcc.RadioItems(id='dimension-selector', options=[{'label': '2D', 'value': 2}, {'label': '3D', 'value': 3}], value=2),
-                        ], style={'width': '15%', 'display': 'inline-block', 'marginBottom': '8px', 'marginRight': '15px'}),
-                        # z轴选择（仅在3D模式下生效）
+                        ], style={'width': '180px'}),
                         html.Div([
                             html.Label('3D z轴:'),
                             dcc.Dropdown(id='z-axis-selector', 
                                          options=[{'label': '降维结果', 'value': 'dimension'}, {'label': 'unit_C', 'value': 'unit_C'}], 
                                          value='dimension'),
-                        ], style={'width': '20%', 'display': 'inline-block', 'marginBottom': '8px', 'marginRight': '15px'}),
-                    ], style={'marginBottom': '8px'}),
+                        ], style={'width': '220px'}),
+                    ], style={'marginBottom': '8px', 'display': 'flex', 'flexWrap': 'wrap', 'gap': '8px 12px', 'alignItems': 'flex-end'}),
                     
 
                     
@@ -403,20 +402,20 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                         html.Div([
                             html.Label('筛选簇:'),
                             dcc.Dropdown(id='cluster-filter', options=[{'label': str(c), 'value': c} for c in clusters], multi=True, placeholder='选择一个或多个簇（留空显示所有）'),
-                        ], style={'width': '32%', 'display': 'inline-block', 'marginBottom': '8px', 'marginRight': '15px'}),
+                        ], style={'width': '240px'}),
                         html.Div([
                             html.Label('筛选单位:'),
                             dcc.Dropdown(id='unit-filter', options=init_unit_options, multi=True, placeholder='选择单位（留空显示所有）'),
-                        ], style={'width': '22%', 'display': 'inline-block', 'marginBottom': '8px', 'marginRight': '15px'}),
+                        ], style={'width': '200px'}),
                         html.Div([
                             html.Label('筛选部位:'),
                             dcc.Dropdown(id='part-filter', options=init_part_options, multi=True, placeholder='选择部位（留空显示所有）'),
-                        ], style={'width': '22%', 'display': 'inline-block', 'marginBottom': '8px', 'marginRight': '15px'}),
+                        ], style={'width': '200px'}),
                         html.Div([
                             html.Label('筛选类型:'),
                             dcc.Dropdown(id='type-filter', options=init_type_options, multi=True, placeholder='选择类型（留空显示所有）'),
-                        ], style={'width': '22%', 'display': 'inline-block', 'marginBottom': '8px'}),
-                    ], style={'marginBottom': '8px'}),
+                        ], style={'width': '200px'}),
+                    ], style={'marginBottom': '6px', 'display': 'flex', 'flexWrap': 'wrap', 'gap': '8px 12px', 'alignItems': 'flex-end'}),
                 ], style={'marginBottom': '16px'}),
                 
                 # main area: left = plot (large), right = controls + scrollable cluster thumbnails
@@ -429,24 +428,24 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                             dcc.Graph(
                                 id='tsne-plot', 
                                 figure=fig, 
-                                style={'height': 'calc(100vh - 240px)', 'width': '100%'},
+                                style={'height': 'calc(100vh - 380px)', 'width': '100%'},
                                 clear_on_unhover=True
                             )
                         ]
                     ),
                     html.Div(id='plot-loading-status', style={'textAlign': 'center', 'marginTop': '8px', 'color': '#666'})
-                ], style={'flex': '1 1 auto'}),
+                ], style={'flex': '3 1 0%'}),
                 html.Div([
                     html.Div([
                         html.Button('Prev', id='cluster-prev', n_clicks=0),
                         html.Button('Next', id='cluster-next', n_clicks=0),
                         html.Span(id='page-indicator', style={'marginLeft': '8px'})
                     ], style={'display': 'flex', 'alignItems': 'center', 'gap': '8px', 'marginBottom': '8px'}),
-                    html.Div(id='cluster-panel', style={'height': 'calc(100vh - 300px)', 'overflowY': 'auto'}) ,
+                    html.Div(id='cluster-panel', style={'height': 'calc(100vh - 420px)', 'overflowY': 'auto'}) ,
                     dcc.Store(id='cluster-images-store'),
                     dcc.Store(id='cluster-page', data=1)
-                ], style={'width': '320px', 'borderLeft': '1px solid #ddd', 'padding': '8px', 'boxSizing': 'border-box'})
-                ], style={'display': 'flex', 'gap': '12px', 'height': 'calc(100vh - 180px)'})
+                ], style={'width': '320px', 'flex': '1 0 320px', 'borderLeft': '1px solid #ddd', 'padding': '8px', 'boxSizing': 'border-box'})
+                ], style={'display': 'flex', 'gap': '4px', 'height': 'calc(100vh - 260px)'})
 
                 # 比较操作工具条（紧贴散点图区域下方）
                 ,html.Div([
@@ -539,6 +538,18 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                             value='part_C',
                             clearable=False,
                             style={'width': '220px'}
+                        )
+                    ], style={'marginBottom': '8px'}),
+                    html.Div([
+                        html.Label('横轴'),
+                        dcc.RadioItems(
+                            id='category-x-axis',
+                            options=[
+                                {'label': '按簇', 'value': 'cluster'},
+                                {'label': '按单位 (unit_C)', 'value': 'unit_C'}
+                            ],
+                            value='cluster',
+                            labelStyle={'marginRight': '12px'}
                         )
                     ], style={'marginBottom': '8px'}),
                     dcc.Graph(
@@ -1396,14 +1407,24 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             name = str(row['image_name'])
             sample_id = Path(name).stem.replace('_exterior', '').replace('_interior', '')
 
-        # collect images for this sample (both sides)
+        # collect images for this sample (both sides) — always include当前点击图像优先
         paired_names = []
-        if paired_images and str(paired_images) != 'nan':
-            paired_names = [n for n in str(paired_images).split(';') if n]
-        elif img_name:
-            paired_names = [str(img_name)]
+        def side_label(name: str):
+            low = str(name).lower()
+            if 'interior' in low:
+                return '内侧'
+            if 'exterior' in low:
+                return '外侧'
+            return '未知侧'
 
-        # 如果只有单侧，尝试在当前数据里找同一件陶片的另一侧（根据 sample_id 或文件名前缀匹配）
+        current_img = None
+        if img_name:
+            current_img = str(img_name)
+            paired_names.append(current_img)
+        elif row.get(image_col):
+            current_img = str(row.get(image_col))
+            paired_names.append(current_img)
+
         if len(paired_names) < 2:
             base_key = None
             if sample_id:
@@ -1423,7 +1444,7 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
 
                 candidates = list({Path(c).name for c in candidates})  # 去重保留文件名
                 if len(candidates) > 1:
-                    paired_names = candidates
+                    paired_names.extend(candidates)
 
         base_ext = Path(str(img_name)).suffix or '.png'
 
@@ -1478,6 +1499,37 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             if candidate.parent != candidate:
                 base_dir = candidate.parent
         print(f"[INFO] sample base_dir={base_dir}, image_root={image_root}, img_name={img_name}")
+
+        # 如果仍然不足两张，尝试补另一侧
+        if len(paired_names) < 2 and current_img:
+            stem = Path(current_img).stem
+            suffix = Path(current_img).suffix or base_ext
+            alt_candidates = []
+            if 'interior' in stem:
+                alt_candidates.append(stem.replace('interior', 'exterior') + suffix)
+            elif 'exterior' in stem:
+                alt_candidates.append(stem.replace('exterior', 'interior') + suffix)
+            else:
+                alt_candidates.append(f"{stem}_interior{suffix}")
+                alt_candidates.append(f"{stem}_exterior{suffix}")
+
+            for alt in alt_candidates:
+                alt_name = Path(alt).name
+                if alt_name in paired_names:
+                    continue
+                ipath = resolve_image_path(alt_name, base_dir)
+                if ipath.exists():
+                    paired_names.append(alt_name)
+
+        # 去重但保持当前点击图像优先
+        seen = set()
+        ordered = []
+        for nm in paired_names:
+            key = Path(str(nm)).name
+            if key not in seen:
+                seen.add(key)
+                ordered.append(key)
+        paired_names = ordered
         sample_imgs = []
         for i, nm in enumerate(paired_names):
             ipath = resolve_image_path(nm, base_dir)
@@ -1486,19 +1538,23 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             b64 = img_to_base64(ipath)
             b64_full = img_to_base64_full(ipath)  # 同时生成原图
             if b64:
-                sample_imgs.append(html.Img(
-                    src=b64, 
-                    id=f'sample-img-{i}',
-                    **{'data-image-path': str(Path(nm).name)},  # 添加原始图片路径
-                    **{'data-full-src': b64_full if b64_full else b64},  # 添加原图数据
-                    style={
-                        'height': '200px', 
-                        'border': '1px solid #ccc', 
-                        'margin-right': '6px',
-                        'cursor': 'pointer'
-                    },
-                    title='点击放大查看'
-                ))
+                side_txt = side_label(nm)
+                sample_imgs.append(html.Div([
+                    html.Img(
+                        src=b64, 
+                        id=f'sample-img-{i}',
+                        **{'data-image-path': str(Path(nm).name)},  # 添加原始图片路径
+                        **{'data-full-src': b64_full if b64_full else b64},  # 添加原图数据
+                        style={
+                            'height': '200px', 
+                            'border': '1px solid #ccc', 
+                            'marginRight': '6px',
+                            'cursor': 'pointer'
+                        },
+                        title='点击放大查看'
+                    ),
+                    html.Div(side_txt, style={'textAlign': 'center', 'fontSize': '12px', 'color': '#555', 'marginTop': '4px'})
+                ], style={'display': 'flex', 'flexDirection': 'column', 'alignItems': 'center'}) )
             else:
                 print(f"[WARN] failed to encode image: {ipath}")
                 sample_imgs.append(html.Div(f"缺少图片或无法读取: {ipath.name}"))
@@ -1506,8 +1562,7 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         if len(sample_imgs) == 0:
             sample_imgs = [html.Div('未找到正反面图片')]
 
-        left_col = html.Div(sample_imgs)
-        sample_panel_children = html.Div([html.Div(left_col, style={'display': 'flex', 'gap': '8px', 'justifyContent': 'center'})])
+        left_col = html.Div(sample_imgs, style={'display': 'flex', 'gap': '8px', 'alignItems': 'flex-start', 'flexWrap': 'wrap'})
 
         # collect all images in same cluster
         cluster_val = row[cluster_col]
@@ -1573,7 +1628,7 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
                 f"Type: {row['type']}"
             ])
         
-        meta = html.Div(meta_parts)
+        meta = html.Div(meta_parts, style={'fontSize': '13px', 'lineHeight': '1.6', 'color': '#333'})
 
         # 准备用于对比的记录（单次点击存储，不直接加入列表）
         rep_name = None
@@ -1601,7 +1656,12 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             'path': rep_path or ''
         }
 
-        return image_paths, last_selected, sample_panel_children, meta
+        sample_panel_children = html.Div([
+            html.Div(left_col, style={'flex': '1 1 60%', 'minWidth': '280px'}),
+            html.Div(meta, style={'flex': '1 1 40%', 'minWidth': '220px', 'paddingLeft': '8px'})
+        ], style={'display': 'flex', 'gap': '12px', 'alignItems': 'flex-start'})
+
+        return image_paths, last_selected, sample_panel_children, ''
 
 
     PAGE_SIZE = 20
@@ -2206,6 +2266,7 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         Output('category-breakdown-graph', 'figure'),
         [Input('visualization-tabs', 'value'),
          Input('category-field-selector', 'value'),
+         Input('category-x-axis', 'value'),
          Input('cluster-filter', 'value'),
          Input('unit-filter', 'value'),
          Input('part-filter', 'value'),
@@ -2213,7 +2274,7 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         State('data-store', 'data')
     )
     @cache_plot_result
-    def render_category_breakdown(tab_value, category_field, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+    def render_category_breakdown(tab_value, category_field, x_axis_mode, selected_clusters, selected_units, selected_parts, selected_types, data_store):
         if tab_value != 'category-breakdown' or data_store is None:
             return dash.no_update
 
@@ -2242,19 +2303,27 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
             empty_fig.update_layout(margin=dict(l=30, r=20, t=40, b=40))
             return empty_fig
 
+        x_axis_mode = x_axis_mode or 'cluster'
+        x_field = cluster_col if x_axis_mode == 'cluster' else 'unit_C'
+
+        if x_field not in dff.columns:
+            fig = px.bar(title='所选横轴字段不存在')
+            fig.update_layout(margin=dict(l=30, r=20, t=40, b=40))
+            return fig
+
         grouped = (
             dff
-            .groupby([cluster_col, category_field])
+            .groupby([x_field, category_field])
             .size()
             .reset_index(name='count')
         )
 
-        grouped['cluster_label'] = grouped[cluster_col].astype(str)
-        grouped = grouped.sort_values([cluster_col, category_field])
+        grouped['x_label'] = grouped[x_field].astype(str)
+        grouped = grouped.sort_values([x_field, category_field])
 
         fig = px.bar(
             grouped,
-            x='cluster_label',
+            x='x_label',
             y='count',
             color=category_field,
             text='count',
@@ -2262,8 +2331,8 @@ def create_app(csv=CSV, image_root=IMAGE_ROOT):
         )
         fig.update_traces(textposition='outside', cliponaxis=False)
         fig.update_layout(
-            title=f"类别构成（{category_field}）｜样本 {len(dff)}，簇 {grouped[cluster_col].nunique()}",
-            xaxis_title='簇 ID',
+            title=f"类别构成（{category_field}）｜样本 {len(dff)}",
+            xaxis_title='簇' if x_axis_mode == 'cluster' else '单位 (unit_C)',
             yaxis_title='样本数',
             bargap=0.25,
             margin=dict(l=40, r=30, t=60, b=80),
