@@ -28,7 +28,7 @@ from performance_utils import optimize_dataframe
 
 APP_CONFIG = {
     'title': '陶片聚类交互可视化',
-    'port': 8050,
+    'port': 9357,
 }
 
 BASE_DIR = Path(__file__).parent
@@ -90,6 +90,7 @@ def build_initial_figure(df: pd.DataFrame, feature_cols, cluster_col, hover_cols
         custom_data=custom_data,
         color_discrete_sequence=CLUSTER_COLORS,
         title='降维散点图 (UMAP)',
+        render_mode='webgl',
         **symbol_kwargs,
     )
     fig.update_traces(marker={'size': 8})
@@ -135,7 +136,11 @@ def create_app():
         types = [{'label': str(t), 'value': t} for t in sorted(dff['type_C'].dropna().unique())] if 'type_C' in dff.columns else []
         return units, parts, types
 
-    app = Dash(__name__)
+    app = Dash(
+        __name__,
+        serve_locally=True,  # 在服务器直接提供静态资源，避免外部 CDN 访问失败
+        compress=True,       # 已安装 dash[compress] 后开启 gzip 压缩
+    )
     app.title = APP_CONFIG['title']
 
     app.layout = build_layout(
@@ -168,7 +173,7 @@ def main():
     debug = os.environ.get('CERAMIC_DEBUG', 'false').lower() == 'true'
 
     app = create_app()
-    app.run(debug=debug, port=port, host='127.0.0.1')
+    app.run(debug=debug, port=port, host='127.0.0.1', dev_tools_hot_reload=False)
 
 
 if __name__ == '__main__':

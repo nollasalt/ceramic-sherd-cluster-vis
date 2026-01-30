@@ -1,0 +1,11 @@
+serverAddr = "8.147.58.173"
+serverPort = 7000
+auth.method = "token"
+auth.token = "ASihoisaADioaSdhlksado"
+
+[[proxies]]
+name = "ceramic"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 9357
+remotePort = 6001

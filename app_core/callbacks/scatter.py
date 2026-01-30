@@ -203,6 +203,7 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
                 hover_data=hover_cols,
                 custom_data=custom,
                 color_discrete_sequence=CLUSTER_COLORS,
+                render_mode='webgl',
                 **symbol_kwargs,
             )
         else:
