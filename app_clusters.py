@@ -138,8 +138,9 @@ def create_app():
 
     app = Dash(
         __name__,
-        serve_locally=True,  # 在服务器直接提供静态资源，避免外部 CDN 访问失败
-        compress=True,       # 已安装 dash[compress] 后开启 gzip 压缩
+        serve_locally=False,
+        external_scripts=["https://cdn.plot.ly/plotly-2.20.0.min.js"],
+        compress=True,
     )
     app.title = APP_CONFIG['title']
 
@@ -173,7 +174,7 @@ def main():
     debug = os.environ.get('CERAMIC_DEBUG', 'false').lower() == 'true'
 
     app = create_app()
-    app.run(debug=debug, port=port, host='127.0.0.1', dev_tools_hot_reload=False)
+    app.run(debug=debug, port=port, host='0.0.0.0', dev_tools_hot_reload=False)
 
 
 if __name__ == '__main__':
