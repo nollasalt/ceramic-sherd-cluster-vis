@@ -138,8 +138,7 @@ def create_app():
 
     app = Dash(
         __name__,
-        serve_locally=False,
-        external_scripts=["https://cdn.plot.ly/plotly-2.20.0.min.js"],
+        serve_locally=True,
         compress=True,
     )
     app.title = APP_CONFIG['title']
