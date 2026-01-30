@@ -5,7 +5,6 @@ venv/
 # 忽略图像数据文件夹
 test/
 all_cutouts/
-__pycache__/
 exterior/all_kmeans_new/
 exterior/cutouts/
 exterior/exterior_kmeans_results/
@@ -14,11 +13,6 @@ exterior/__pycache__/
 all_kmeans_new/
 
 # 忽略Python编译文件
-__pycache__/
-*.py[cod]
-*.pyc
-*.pyo
-*.pyd
 
 # 忽略日志文件
 *.log
