@@ -473,7 +473,10 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
         for i, nm in enumerate(paired_names):
             ipath = resolve_image_path(nm, base_dir)
             if not ipath.exists():
-                print(f"[WARN] resolved path missing: {ipath} for nm={nm}")
+                print(f"[WARN] sample image missing: {ipath} (nm={nm}, sample_id={sample_id})")
+                sample_imgs.append(html.Div(f"缺少图片: {Path(nm).name}"))
+                continue
+
             b64 = img_to_base64(ipath)
             b64_full = img_to_base64_full(ipath)
             if b64:
@@ -495,8 +498,8 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
                     html.Div(side_txt, style={'textAlign': 'center', 'fontSize': '12px', 'color': '#555', 'marginTop': '4px'})
                 ], style={'display': 'flex', 'flexDirection': 'column', 'alignItems': 'center'}))
             else:
-                print(f"[WARN] failed to encode image: {ipath}")
-                sample_imgs.append(html.Div(f"缺少图片或无法读取: {ipath.name}"))
+                print(f"[WARN] failed to encode image: {ipath} (sample_id={sample_id})")
+                sample_imgs.append(html.Div(f"图片无法读取: {Path(nm).name}"))
 
         if len(sample_imgs) == 0:
             sample_imgs = [html.Div('未找到正反面图片')]
@@ -522,7 +525,8 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
             for nm in names:
                 ipath = resolve_image_path(nm, base_dir_cluster)
                 if not ipath.exists():
-                    print(f"[WARN] cluster thumb path missing: {ipath} for nm={nm} base_dir={base_dir_cluster}")
+                    print(f"[WARN] cluster thumb missing: {ipath} (nm={nm}, cluster={cluster_val})")
+                    continue
                 image_paths.append(str(ipath))
 
         meta_parts = [
