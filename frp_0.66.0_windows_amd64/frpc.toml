@@ -1,11 +1,11 @@
-serverAddr = "8.147.58.173"
-serverPort = 7000
+serverAddr = "114.215.164.199"
+serverPort = 20050
 auth.method = "token"
-auth.token = "ASihoisaADioaSdhlksado"
+auth.token = "HJGHJKGjhgkjhghjgGhj"
 
 [[proxies]]
 name = "ceramic"
 type = "tcp"
 localIP = "127.0.0.1"
 localPort = 9357
-remotePort = 6001
+remotePort = 20048

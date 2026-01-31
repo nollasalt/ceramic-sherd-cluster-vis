@@ -137,7 +137,7 @@ def build_layout(
                 html.Div([
                     html.Button('添加到比较', id='compare-add', style={'width': '120px', 'backgroundColor': '#0066cc', 'color': 'white', 'border': 'none', 'borderRadius': '4px', 'padding': '6px 10px'}),
                     html.Button('清空比较', id='compare-clear', style={'width': '120px'}),
-                    html.A('进入比较视图', href='#compare-section', target='_blank', style={'marginLeft': '10px', 'textDecoration': 'none', 'color': '#0066cc', 'fontWeight': '600'}),
+                    #html.A('进入比较视图', href='#compare-section', target='_blank', style={'marginLeft': '10px', 'textDecoration': 'none', 'color': '#0066cc', 'fontWeight': '600'}),
                     html.Span('（先点击散点图选中样本，再添加到比较）', style={'marginLeft': '10px', 'color': '#666'})
                 ], style={'display': 'flex', 'alignItems': 'center', 'gap': '10px', 'marginTop': '8px', 'marginBottom': '8px'})
             ]),
