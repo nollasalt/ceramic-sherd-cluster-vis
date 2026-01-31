@@ -1,0 +1,14 @@
+dash
+pandas
+plotly
+numpy
+tqdm
+scipy
+scikit-learn
+python-igraph
+leidenalg
+torch
+Pillow
+torchvision
+umap-learn
+timm
