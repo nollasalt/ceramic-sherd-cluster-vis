@@ -18,8 +18,7 @@ from app_core.layout import build_layout
 from app_core.data_cache import set_data_cache
 from app_core.utils import CLUSTER_COLORS, PART_SYMBOL_SEQUENCE, get_part_symbol_settings
 from data_processing import (
-    build_samples_for_mode,
-    detect_columns,
+    #detect_columns,
     ensure_dimensionality_reduction,
     #ensure_sample_ids,
     load_cluster_metadata,
@@ -42,21 +41,15 @@ DEFAULT_CLUSTER_MODE = 'merged'  # 默认聚类模式，正反面融合
 
 def load_dataset(csv_path: Path, cluster_mode: str):
     df_raw = pd.read_csv(csv_path)
-    cluster_col, image_col = detect_columns(df_raw)
-    if cluster_col is None or image_col is None:
-        raise ValueError('无法检测聚类列或图片列，请检查数据源')
+    cluster_col = "cluster_id"
+    image_col = "image_name"
 
     df_raw = df_raw.dropna(subset=[cluster_col, image_col]).reset_index(drop=True)
     #df_raw = ensure_sample_ids(df_raw, image_col)
 
     raw_feature_cols = [c for c in df_raw.columns if c not in {cluster_col, image_col}]
-    df, feature_cols, _ = build_samples_for_mode(
-        df_raw,
-        raw_feature_cols,
-        cluster_col,
-        image_col,
-        cluster_mode=cluster_mode,
-    )
+    df = df_raw.copy()
+    feature_cols = list(raw_feature_cols)
     # Only keep numeric feature columns to avoid encoding errors
     feature_cols = [c for c in feature_cols if pd.api.types.is_numeric_dtype(df[c])]
     df = optimize_dataframe(df)

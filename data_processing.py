@@ -46,19 +46,13 @@ def load_cluster_metadata(path: Path = DEFAULT_CLUSTER_METADATA_PATH):
     return None
 
 
-def detect_columns(df: pd.DataFrame):
-    """简单检测聚类列与图片列"""
-    cluster_col = "cluster_id"
-    image_col = "image_name"
-    # print(f"检测到聚类列: {cluster_col}, 图片列: {image_col}")
-    return cluster_col, image_col
+# def detect_columns(df: pd.DataFrame):
+#     """简单检测聚类列与图片列"""
 
-
-def build_samples_for_mode(df: pd.DataFrame, raw_feature_cols, cluster_col, image_col, cluster_mode='merged'):
-    """按模式准备样本。本简化版直接返回原数据与特征列。"""
-    feature_cols = list(raw_feature_cols)
-    dropped_samples = []
-    return df, feature_cols, dropped_samples
+#     # print(f"检测到聚类列: {cluster_col}, 图片列: {image_col}")
+#     cluster_col = "cluster_id"
+#     image_col = "image_name"
+#     return cluster_col, image_col
 
 
 # ============================================

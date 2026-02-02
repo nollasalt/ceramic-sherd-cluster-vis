@@ -11,8 +11,7 @@ import plotly.express as px
 from app_core.data_cache import get_data_cache, set_data_cache
 from app_core.utils import CLUSTER_COLORS, PART_SYMBOL_SEQUENCE, get_part_symbol_settings
 from data_processing import (
-    build_samples_for_mode,
-    detect_columns,
+    #detect_columns,
     ensure_dimensionality_reduction,
     #ensure_sample_ids,
     img_to_base64,
@@ -115,16 +114,17 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
             new_metadata = load_cluster_metadata()
             new_cluster_mode = new_metadata.get('cluster_mode', 'merged') if new_metadata else 'merged'
             df_new = pd.read_csv(csv_path)
-            new_cluster_col, new_image_col = detect_columns(df_new)
+            #new_cluster_col, new_image_col = detect_columns(df_new)
+            new_cluster_col = "cluster_id"
+            new_image_col = "image_name"
             if new_cluster_col is None or new_image_col is None:
                 raise RuntimeError('无法识别聚类列或图片列，请检查 CSV')
             #df_new = ensure_sample_ids(df_new, new_image_col)
             exclude = {new_cluster_col, new_image_col, 'image_name', 'sample_id', 'side', 'image_id', 'sherd_id',
                       'unit', 'part', 'type', 'image_side', 'image_id_original', 'unit_C', 'part_C', 'type_C', 'image_path'}
             new_raw_feature_cols = [c for c in df_new.columns if c not in exclude and np.issubdtype(df_new[c].dtype, np.number)]
-            df_processed, new_feature_cols, _ = build_samples_for_mode(
-                df_new, new_raw_feature_cols, new_cluster_col, new_image_col, new_cluster_mode
-            )
+            df_processed = df_new.copy()
+            new_feature_cols = list(new_raw_feature_cols)
             data_cache = {
                 'df': df_processed,
                 'feature_cols': new_feature_cols,
