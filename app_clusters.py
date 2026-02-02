@@ -189,10 +189,10 @@ def create_app():
         types = [{'label': str(t), 'value': t} for t in sorted(dff['type_C'].dropna().unique())] if 'type_C' in dff.columns else []
         return units, parts, types
 
-    # Serve assets via CDN to avoid tunneling large plotly bundles through frp
+    # 改为本地提供依赖，避免访问外部 CDN 导致加载过慢
     app = Dash(
         __name__,
-        serve_locally=False,  # 通过 CDN 提供前端依赖，降低本机/隧道带宽占用
+        serve_locally=True,
         compress=True,
         assets_folder=str(BASE_DIR / 'assets'),
         assets_url_path='/assets',
