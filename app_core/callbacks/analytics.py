@@ -1,6 +1,5 @@
 """Analytical callbacks split from the main app module."""
 
-from io import StringIO
 from pathlib import Path
 
 import dash
@@ -10,6 +9,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 
+from app_core.data_cache import get_data_cache
 from app_core.utils import CLUSTER_COLORS
 from data_processing import create_cluster_pattern_heatmap, img_to_base64, img_to_base64_full
 from performance_utils import cache_plot_result, image_cache
@@ -37,11 +37,13 @@ def register_analytics_callbacks(app, *, image_root):
     )
     @cache_plot_result
     def render_cluster_size(tab_value, selected_clusters, selected_units, selected_parts, selected_types, data_store):
-        if tab_value != 'cluster-size' or data_store is None:
+        if tab_value != 'cluster-size':
             return dash.no_update
 
-        df = pd.read_json(StringIO(data_store['df']), orient='split')
-        cluster_col = data_store['cluster_col']
+        # Pull dataset from server-side cache to avoid large client payloads
+        data_cache = get_data_cache()
+        df = data_cache['df']
+        cluster_col = data_cache['cluster_col']
 
         dff = df.copy()
         if selected_clusters:
@@ -113,12 +115,14 @@ def register_analytics_callbacks(app, *, image_root):
     )
     @cache_plot_result
     def render_cluster_quality(tab_value, selected_clusters, selected_units, selected_parts, selected_types, data_store):
-        if tab_value != 'cluster-quality' or data_store is None:
+        if tab_value != 'cluster-quality':
             return dash.no_update, dash.no_update, dash.no_update
 
-        df = pd.read_json(StringIO(data_store['df']), orient='split')
-        cluster_col = data_store['cluster_col']
-        feature_cols = data_store.get('feature_cols', [])
+        # Use cached df/feature_cols for metric computation
+        data_cache = get_data_cache()
+        df = data_cache['df']
+        cluster_col = data_cache['cluster_col']
+        feature_cols = data_cache.get('feature_cols', [])
 
         dff = df.copy()
         if selected_clusters:
@@ -311,11 +315,13 @@ def register_analytics_callbacks(app, *, image_root):
     )
     @cache_plot_result
     def render_category_breakdown(tab_value, category_field, x_axis_mode, selected_clusters, selected_units, selected_parts, selected_types, data_store):
-        if tab_value != 'category-breakdown' or data_store is None:
+        if tab_value != 'category-breakdown':
             return dash.no_update
 
-        df = pd.read_json(StringIO(data_store['df']), orient='split')
-        cluster_col = data_store['cluster_col']
+        # Category breakdown also reads from cached df
+        data_cache = get_data_cache()
+        df = data_cache['df']
+        cluster_col = data_cache['cluster_col']
 
         if category_field not in df.columns:
             fig = px.bar(title='所选类别字段不存在')
@@ -393,12 +399,14 @@ def register_analytics_callbacks(app, *, image_root):
     )
     @cache_plot_result
     def render_cluster_analysis(tab_value, selected_cluster, diff_mode, topk, selected_clusters, selected_units, selected_parts, selected_types, data_store):
-        if tab_value != 'cluster-analysis' or data_store is None:
+        if tab_value != 'cluster-analysis':
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
-        df = pd.read_json(StringIO(data_store['df']), orient='split')
-        cluster_col = data_store['cluster_col']
-        feature_cols = data_store.get('feature_cols', [])
+        # Use server-side cache to compute purity/feature diffs
+        data_cache = get_data_cache()
+        df = data_cache['df']
+        cluster_col = data_cache['cluster_col']
+        feature_cols = data_cache.get('feature_cols', [])
 
         dff = df.copy()
         if selected_clusters:
@@ -530,13 +538,15 @@ def register_analytics_callbacks(app, *, image_root):
         State('data-store', 'data')
     )
     def render_representatives(tab_value, samples_per_cluster, strategy, outlier_count, selected_clusters, selected_units, selected_parts, selected_types, data_store):
-        if tab_value != 'representatives' or data_store is None:
+        if tab_value != 'representatives':
             return dash.no_update, dash.no_update
 
-        df = pd.read_json(StringIO(data_store['df']), orient='split')
-        cluster_col = data_store['cluster_col']
-        image_col = data_store['image_col']
-        feature_cols = data_store.get('feature_cols', [])
+        # Thumbnails and outliers are derived from cached df to keep responses small
+        data_cache = get_data_cache()
+        df = data_cache['df']
+        cluster_col = data_cache['cluster_col']
+        image_col = data_cache['image_col']
+        feature_cols = data_cache.get('feature_cols', [])
 
         dff = df.copy()
         if selected_clusters:
@@ -709,7 +719,7 @@ def register_analytics_callbacks(app, *, image_root):
     )
     @cache_plot_result
     def update_similarity_matrix(tab_value, metric, options, neighbor_k, selected_clusters, selected_units, selected_parts, selected_types, data_store):
-        if tab_value != 'similarity' or data_store is None:
+        if tab_value != 'similarity':
             return dash.no_update, dash.no_update
 
         metric = metric or 'cosine'
@@ -718,9 +728,11 @@ def register_analytics_callbacks(app, *, image_root):
         reorder_requested = 'reorder' in options
         neighbor_k = int(neighbor_k or 3)
 
-        df = pd.read_json(StringIO(data_store['df']), orient='split')
-        cluster_col = data_store['cluster_col']
-        feature_cols = data_store.get('feature_cols', [])
+        # Compute cluster-centroid similarity using cached df and feature columns
+        data_cache = get_data_cache()
+        df = data_cache['df']
+        cluster_col = data_cache['cluster_col']
+        feature_cols = data_cache.get('feature_cols', [])
 
         dff = df.copy()
         if selected_clusters:

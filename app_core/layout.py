@@ -357,8 +357,8 @@ def build_layout(
             ], style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '12px', 'marginBottom': '8px'}),
             html.Div(id='compare-panel', style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '16px', 'padding': '8px', 'border': '1px dashed #ddd', 'minHeight': '120px'})
         ], id='compare-section', style={'borderTop': '1px solid #eee', 'paddingTop': '8px', 'marginTop': '8px'}),
+        # Keep only lightweight metadata in the client store; full df is cached server-side
         dcc.Store(id='data-store', data={
-            'df': df.to_json(orient='split'),
             'feature_cols': feature_cols,
             'raw_feature_cols': raw_feature_cols,
             'cluster_col': cluster_col,

@@ -15,18 +15,20 @@ from app_core.callbacks import (
     register_scatter_callbacks,
 )
 from app_core.layout import build_layout
+from app_core.data_cache import set_data_cache
 from app_core.utils import CLUSTER_COLORS, PART_SYMBOL_SEQUENCE, get_part_symbol_settings
 from data_processing import (
     build_samples_for_mode,
     detect_columns,
     ensure_dimensionality_reduction,
-    ensure_sample_ids,
+    #ensure_sample_ids,
     load_cluster_metadata,
 )
 from performance_utils import optimize_dataframe
 
 
 APP_CONFIG = {
+    # 应用标题与默认端口
     'title': '陶片聚类交互可视化',
     'port': 9357,
 }
@@ -35,7 +37,7 @@ BASE_DIR = Path(__file__).parent
 DATA_CSV = BASE_DIR / 'sherd_cluster_table_clustered_only.csv'
 FEATURES_CSV = BASE_DIR / 'all_features_dinov3.csv'
 IMAGE_ROOT = BASE_DIR / 'all_cutouts'
-DEFAULT_CLUSTER_MODE = 'merged'
+DEFAULT_CLUSTER_MODE = 'merged'  # 默认聚类模式，正反面融合
 
 
 def load_dataset(csv_path: Path, cluster_mode: str):
@@ -45,7 +47,7 @@ def load_dataset(csv_path: Path, cluster_mode: str):
         raise ValueError('无法检测聚类列或图片列，请检查数据源')
 
     df_raw = df_raw.dropna(subset=[cluster_col, image_col]).reset_index(drop=True)
-    df_raw = ensure_sample_ids(df_raw, image_col)
+    #df_raw = ensure_sample_ids(df_raw, image_col)
 
     raw_feature_cols = [c for c in df_raw.columns if c not in {cluster_col, image_col}]
     df, feature_cols, _ = build_samples_for_mode(
@@ -101,6 +103,16 @@ def build_initial_figure(df: pd.DataFrame, feature_cols, cluster_col, hover_cols
 def create_app():
     df, feature_cols, raw_feature_cols, cluster_col, image_col = load_dataset(DATA_CSV, DEFAULT_CLUSTER_MODE)
 
+    # 将数据集与元数据放入服务端缓存，避免前端携带大体量 JSON
+    set_data_cache({
+        'df': df,
+        'feature_cols': feature_cols,
+        'raw_feature_cols': raw_feature_cols,
+        'cluster_col': cluster_col,
+        'image_col': image_col,
+        'cluster_mode': DEFAULT_CLUSTER_MODE,
+    })
+
     hover_cols = [cluster_col]
     for col in ['sample_id', 'unit_C', 'part_C', 'type_C']:
         if col in df.columns:
@@ -136,9 +148,10 @@ def create_app():
         types = [{'label': str(t), 'value': t} for t in sorted(dff['type_C'].dropna().unique())] if 'type_C' in dff.columns else []
         return units, parts, types
 
+    # Serve assets via CDN to avoid tunneling large plotly bundles through frp
     app = Dash(
         __name__,
-        serve_locally=True,
+        serve_locally=False,  # 通过 CDN 提供前端依赖，降低本机/隧道带宽占用
         compress=True,
     )
     app.title = APP_CONFIG['title']
@@ -173,6 +186,7 @@ def main():
     debug = os.environ.get('CERAMIC_DEBUG', 'false').lower() == 'true'
 
     app = create_app()
+    # 关闭热重载以降低资源占用；监听 0.0.0.0 便于外部访问
     app.run(debug=debug, port=port, host='0.0.0.0', dev_tools_hot_reload=False)
 
 

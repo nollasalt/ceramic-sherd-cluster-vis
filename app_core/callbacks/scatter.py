@@ -1,4 +1,3 @@
-from io import StringIO
 from pathlib import Path
 import json
 import os
@@ -9,12 +8,13 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 
+from app_core.data_cache import get_data_cache, set_data_cache
 from app_core.utils import CLUSTER_COLORS, PART_SYMBOL_SEQUENCE, get_part_symbol_settings
 from data_processing import (
     build_samples_for_mode,
     detect_columns,
     ensure_dimensionality_reduction,
-    ensure_sample_ids,
+    #ensure_sample_ids,
     img_to_base64,
     img_to_base64_full,
     load_cluster_metadata,
@@ -104,13 +104,12 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
     def update_plot(selected_clusters, selected_units, selected_parts, selected_types,
                     selected_algorithm, selected_dimension, z_axis='dimension',
                     reload_trigger=0, data_store=None):
-        if data_store is None:
-            raise ValueError('Data store is empty')
+        data_cache = get_data_cache()
+        current_feature_cols = data_cache['feature_cols']
+        raw_feature_cols = data_cache.get('raw_feature_cols', current_feature_cols)
+        old_cluster_mode = data_cache.get('cluster_mode', 'merged')
 
-        current_feature_cols = data_store['feature_cols']
-        raw_feature_cols = data_store.get('raw_feature_cols', current_feature_cols)
-        old_cluster_mode = data_store.get('cluster_mode', 'merged')
-
+        # Handle dataset reload trigger to refresh server-side cache when reclustering completes
         ctx = dash.callback_context
         if ctx.triggered and ctx.triggered[0]['prop_id'] == 'reload-trigger.data' and reload_trigger > 0:
             new_metadata = load_cluster_metadata()
@@ -119,15 +118,15 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
             new_cluster_col, new_image_col = detect_columns(df_new)
             if new_cluster_col is None or new_image_col is None:
                 raise RuntimeError('无法识别聚类列或图片列，请检查 CSV')
-            df_new = ensure_sample_ids(df_new, new_image_col)
+            #df_new = ensure_sample_ids(df_new, new_image_col)
             exclude = {new_cluster_col, new_image_col, 'image_name', 'sample_id', 'side', 'image_id', 'sherd_id',
                       'unit', 'part', 'type', 'image_side', 'image_id_original', 'unit_C', 'part_C', 'type_C', 'image_path'}
             new_raw_feature_cols = [c for c in df_new.columns if c not in exclude and np.issubdtype(df_new[c].dtype, np.number)]
             df_processed, new_feature_cols, _ = build_samples_for_mode(
                 df_new, new_raw_feature_cols, new_cluster_col, new_image_col, new_cluster_mode
             )
-            data_store = {
-                'df': df_processed.to_json(orient='split'),
+            data_cache = {
+                'df': df_processed,
                 'feature_cols': new_feature_cols,
                 'raw_feature_cols': new_raw_feature_cols,
                 'cluster_col': new_cluster_col,
@@ -135,14 +134,16 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
                 'cluster_mode': new_cluster_mode,
                 'version': reload_trigger
             }
+            set_data_cache(data_cache)
+
+        # Use the cached DataFrame directly instead of re-sending via the client store
+        df = data_cache['df']
+        feature_cols = data_cache['feature_cols']
+        cluster_col = data_cache['cluster_col']
+        image_col = data_cache['image_col']
 
         if selected_algorithm is None:
             selected_algorithm = 'umap'
-
-        df = pd.read_json(StringIO(data_store['df']), orient='split')
-        feature_cols = data_store['feature_cols']
-        cluster_col = data_store['cluster_col']
-        image_col = data_store['image_col']
 
         if selected_algorithm == 'tsne':
             df, reduction_key = ensure_dimensionality_reduction(
@@ -283,10 +284,11 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
             params[reduction_key] = {'n_neighbors': 15, 'min_dist': 0.1}
 
         updated_data_store = {
-            'df': df.to_json(orient='split'),
             'feature_cols': feature_cols,
+            'raw_feature_cols': raw_feature_cols,
             'cluster_col': cluster_col,
             'image_col': image_col,
+            'cluster_mode': data_cache.get('cluster_mode', 'merged'),
             'params': params
         }
 
@@ -305,7 +307,7 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
         State('data-store', 'data')
     )
     def show_selected(clickData, data_store=None):
-        if not clickData or data_store is None:
+        if not clickData:
             return [], {}, html.Div('点击一个点以查看图片'), ''
 
         pts = clickData.get('points', [])
@@ -321,11 +323,12 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
         img_name = cd[1] if len(cd) >= 2 else p.get('hovertext')
         paired_images = cd[2] if len(cd) >= 3 else None
 
-        df = pd.read_json(StringIO(data_store['df']), orient='split')
-        cluster_col = data_store['cluster_col']
-        image_col = data_store['image_col']
+        data_cache = get_data_cache()
+        df = data_cache['df']
+        cluster_col = data_cache['cluster_col']
+        image_col = data_cache['image_col']
 
-        df = ensure_sample_ids(df, image_col)
+        #df = ensure_sample_ids(df, image_col)
 
         row = None
         if sample_id is not None:

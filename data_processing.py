@@ -48,83 +48,17 @@ def load_cluster_metadata(path: Path = DEFAULT_CLUSTER_METADATA_PATH):
 
 def detect_columns(df: pd.DataFrame):
     """简单检测聚类列与图片列"""
-    cluster_candidates = [
-        c for c in df.columns
-        if 'cluster' in c.lower() or c.lower() in {'label', 'k'}
-    ]
-    image_candidates = [
-        c for c in df.columns
-        if any(k in c.lower() for k in ['image', 'file', 'path', 'filename'])
-    ]
-    cluster_col = cluster_candidates[0] if cluster_candidates else None
-    image_col = image_candidates[0] if image_candidates else None
+    cluster_col = "cluster_id"
+    image_col = "image_name"
+    # print(f"检测到聚类列: {cluster_col}, 图片列: {image_col}")
     return cluster_col, image_col
-
-
-def ensure_sample_ids(df: pd.DataFrame, image_col: str):
-    """确保 sample_id 列存在，缺失则用文件名 stem 生成"""
-    if 'sample_id' not in df.columns:
-        df = df.copy()
-        df['sample_id'] = df[image_col].apply(lambda x: Path(str(x)).stem)
-    return df
-
-
-def build_fused_samples(df: pd.DataFrame, feature_cols, cluster_col, image_col):
-    """占位实现：直接返回原数据与特征列"""
-    return df.copy(), list(feature_cols), []
 
 
 def build_samples_for_mode(df: pd.DataFrame, raw_feature_cols, cluster_col, image_col, cluster_mode='merged'):
     """按模式准备样本。本简化版直接返回原数据与特征列。"""
-    df = ensure_sample_ids(df, image_col)
     feature_cols = list(raw_feature_cols)
     dropped_samples = []
     return df, feature_cols, dropped_samples
-
-
-def create_cluster_pattern_heatmap(cluster_centers, feature_names=None):
-    """基于聚类中心生成热力图"""
-    feature_names = feature_names or [f"f{i}" for i in range(cluster_centers.shape[1])]
-    fig = px.imshow(cluster_centers, labels=dict(x="feature", y="cluster"), x=feature_names, color_continuous_scale='Viridis')
-    return fig
-
-
-def create_cluster_similarity_matrix(cluster_centers):
-    """基于聚类中心余弦相似度的矩阵"""
-    if cluster_centers.size == 0:
-        return px.imshow([[0]])
-    norm = np.linalg.norm(cluster_centers, axis=1, keepdims=True) + 1e-8
-    normalized = cluster_centers / norm
-    sim = normalized @ normalized.T
-    fig = px.imshow(sim, labels=dict(x="cluster", y="cluster"), color_continuous_scale='RdBu')
-    return fig
-
-
-def _encode_image(image_path: Path, max_size=256):
-    if not image_path or not Path(image_path).exists():
-        return None
-    try:
-        with Image.open(image_path) as img:
-            img = img.convert('RGB')
-            if max(img.size) > max_size:
-                scale = max_size / max(img.size)
-                new_size = (int(img.size[0] * scale), int(img.size[1] * scale))
-                img = img.resize(new_size)
-            buf = io.BytesIO()
-            img.save(buf, format='JPEG')
-            b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
-            return f"data:image/jpeg;base64,{b64}"
-    except Exception as exc:
-        print(f"编码图片失败 {image_path}: {exc}")
-        return None
-
-
-def img_to_base64(image_path, max_size=256):
-    return _encode_image(Path(image_path), max_size=max_size)
-
-
-def img_to_base64_full(image_path):
-    return _encode_image(Path(image_path), max_size=1024)
 
 
 # ============================================
@@ -689,8 +623,6 @@ def load_and_prepare_data(csv_path=None, image_root=None):
     if cluster_col is None or image_col is None:
         raise RuntimeError('无法识别聚类列或图片列，请检查 CSV')
     
-    df = ensure_sample_ids(df, image_col)
-    
     # 检查是否包含 jd_sherds_info 的字段
     has_info = 'sherd_id' in df.columns or 'unit_C' in df.columns
     if has_info:
@@ -707,14 +639,10 @@ def load_and_prepare_data(csv_path=None, image_root=None):
     if len(raw_feature_cols) == 0:
         raise RuntimeError('未找到数值特征列')
     
-    # 融合正反面特征
-    fused_df, feature_cols, dropped_samples = build_fused_samples(df, raw_feature_cols, cluster_col, image_col)
-    
-    if len(fused_df) == 0:
-        raise RuntimeError('融合正反面后没有可用的数据，请检查输入')
-    
-    if dropped_samples:
-        print(f"有 {len(dropped_samples)} 个样本因缺少正反面被跳过: {dropped_samples[:10]} ...")
+    # 融合正反面特征（当前实现直接透传数据）
+    fused_df = df.copy()
+    feature_cols = list(raw_feature_cols)
+    dropped_samples = []
     
     return {
         'df': fused_df,
