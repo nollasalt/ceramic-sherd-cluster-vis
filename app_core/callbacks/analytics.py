@@ -1,5 +1,15 @@
 """Analytical callbacks split from the main app module."""
+"""
+这个文件是仪表盘的“分析/洞察”回调集合，负责在前端点击不同标签页时生成各类分析视图。
+核心职责概览（逻辑都注册为 Dash 回调，数据来自服务端缓存）：
 
+簇规模/质量：生成簇规模柱状图、簇质量指标卡片与紧凑度条形图 analytics.py:16-238。
+类别分布：按簇或 unit_C 汇总指定类别字段的堆叠柱状图 analytics.py:240-320。
+簇分析表：计算簇纯度、簇内轮廓系数，展示特征差异 Top-K 柱状图 analytics.py:322-456。
+代表样本与离群点：为每个簇挑选代表图（中心/随机/顺序）并列出离群样本缩略图，带图像缓存 analytics.py:458-618。
+簇中心相似度/距离矩阵：支持余弦或欧氏、可选层次重排与标注，列出最近邻簇列表 analytics.py:620-760。
+热力图与大图：根据聚类中心生成特征热力图、按路径加载大图查看 analytics.py:762-835。
+"""
 from pathlib import Path
 
 import dash

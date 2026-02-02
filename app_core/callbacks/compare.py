@@ -1,3 +1,4 @@
+#管理“对比面板”的回调
 from pathlib import Path
 import json
 
