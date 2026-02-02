@@ -33,8 +33,44 @@ except Exception:
     SCIPY_AVAILABLE = False
 
 
-def register_analytics_callbacks(app, *, image_root):
+def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
     """Register cluster analytics, heatmap, similarity, and modal callbacks."""
+
+    search_dirs = []
+    if image_root:
+        search_dirs.append(Path(image_root))
+    if image_search_dirs:
+        search_dirs.extend(Path(p) for p in image_search_dirs)
+    # remove duplicates while keeping order
+    seen_dirs = []
+    for p in search_dirs:
+        if p not in seen_dirs:
+            seen_dirs.append(p)
+    search_dirs = seen_dirs
+
+    def resolve_full_path(image_path: str) -> Path | None:
+        if not image_path:
+            return None
+        target = Path(image_path)
+        candidates = [target]
+        if not target.is_absolute():
+            candidates.append(Path(target.name))
+
+        for base in search_dirs:
+            base = Path(base)
+            if not base.exists():
+                continue
+            for cand in candidates:
+                cand_path = base / cand
+                if cand_path.exists():
+                    return cand_path
+            try:
+                match = next(base.rglob(target.name))
+                if match.exists():
+                    return match
+            except StopIteration:
+                pass
+        return None
 
     @app.callback(
         Output('cluster-size-graph', 'figure'),
@@ -861,8 +897,8 @@ def register_analytics_callbacks(app, *, image_root):
         if not image_path or image_path == '':
             return dash.no_update
         try:
-            full_path = Path(image_root) / image_path
-            if full_path.exists():
+            full_path = resolve_full_path(image_path)
+            if full_path and full_path.exists():
                 full_res_image = img_to_base64_full(str(full_path))
                 return full_res_image
             return dash.no_update

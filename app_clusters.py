@@ -6,6 +6,7 @@ from pathlib import Path
 from dash import Dash
 import pandas as pd
 import plotly.express as px
+from flask import jsonify, request
 
 from app_core.callbacks import (
     register_analytics_callbacks,
@@ -22,6 +23,7 @@ from data_processing import (
     ensure_dimensionality_reduction,
     #ensure_sample_ids,
     load_cluster_metadata,
+    img_to_base64_full,
 )
 from performance_utils import optimize_dataframe
 
@@ -37,6 +39,12 @@ DATA_CSV = BASE_DIR / 'sherd_cluster_table_clustered_only.csv'
 FEATURES_CSV = BASE_DIR / 'all_features_dinov3.csv'
 IMAGE_ROOT = BASE_DIR / 'all_cutouts'
 DEFAULT_CLUSTER_MODE = 'merged'  # 默认聚类模式，正反面融合
+IMAGE_SEARCH_DIRS = list(dict.fromkeys([
+    IMAGE_ROOT,
+    BASE_DIR / 'all_cutouts',
+    BASE_DIR / 'all_kmeans_new',
+]))
+FULL_IMAGE_CACHE = {}
 
 
 def load_dataset(csv_path: Path, cluster_mode: str):
@@ -54,6 +62,46 @@ def load_dataset(csv_path: Path, cluster_mode: str):
     feature_cols = [c for c in feature_cols if pd.api.types.is_numeric_dtype(df[c])]
     df = optimize_dataframe(df)
     return df, feature_cols, raw_feature_cols, cluster_col, image_col
+
+
+def find_image_path(image_path: str) -> Path | None:
+    """Locate an image by name across known roots, with a tiny in-process cache."""
+
+    if not image_path:
+        return None
+
+    target = Path(image_path)
+    target_name = target.name
+
+    cached = FULL_IMAGE_CACHE.get(target_name)
+    if cached:
+        cached_path = Path(cached)
+        if cached_path.exists():
+            return cached_path
+        FULL_IMAGE_CACHE.pop(target_name, None)
+
+    candidates = [target]
+    if not target.is_absolute():
+        candidates.append(Path(target_name))
+
+    for base in IMAGE_SEARCH_DIRS:
+        base = Path(base)
+        if not base.exists():
+            continue
+        for cand in candidates:
+            cand_path = base / cand
+            if cand_path.exists():
+                FULL_IMAGE_CACHE[target_name] = str(cand_path)
+                return cand_path
+        try:
+            match = next(base.rglob(target_name))
+            if match.exists():
+                FULL_IMAGE_CACHE[target_name] = str(match)
+                return match
+        except StopIteration:
+            pass
+
+    return None
 
 
 def build_initial_figure(df: pd.DataFrame, feature_cols, cluster_col, hover_cols, custom_data):
@@ -146,6 +194,8 @@ def create_app():
         __name__,
         serve_locally=False,  # 通过 CDN 提供前端依赖，降低本机/隧道带宽占用
         compress=True,
+        assets_folder=str(BASE_DIR / 'assets'),
+        assets_url_path='/assets',
     )
     app.title = APP_CONFIG['title']
 
@@ -165,10 +215,26 @@ def create_app():
         image_col=image_col,
     )
 
+    server = app.server
+
+    @server.route('/get_full_image')
+    def get_full_image():
+        image_path = request.args.get('image_path', '')
+        found = find_image_path(image_path)
+        if not found or not found.exists():
+            return jsonify({'error': 'image_not_found', 'path': Path(image_path).name}), 404
+        try:
+            data_url = img_to_base64_full(found)
+            if not data_url:
+                return jsonify({'error': 'encode_failed', 'path': Path(image_path).name}), 500
+            return data_url
+        except Exception as exc:  # pragma: no cover - runtime safety
+            return jsonify({'error': 'server_error', 'detail': str(exc)}), 500
+
     register_scatter_callbacks(app, csv_path=DATA_CSV, image_root=IMAGE_ROOT, get_filter_options=get_filter_options)
     register_compare_callbacks(app)
     register_cluster_panel_callbacks(app)
-    register_analytics_callbacks(app, image_root=IMAGE_ROOT)
+    register_analytics_callbacks(app, image_root=IMAGE_ROOT, image_search_dirs=IMAGE_SEARCH_DIRS)
     register_recluster_callbacks(app, features_csv=FEATURES_CSV, image_root=IMAGE_ROOT)
 
     return app
