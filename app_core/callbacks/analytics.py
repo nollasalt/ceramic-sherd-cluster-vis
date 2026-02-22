@@ -647,6 +647,11 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
         for c in clusters:
             subset_all = dff[dff[cluster_col] == c]
             subset_feat = subset_all.dropna(subset=feature_cols) if feature_cols else subset_all
+            try:
+                cluster_id_for_url = int(c)
+            except Exception:
+                cluster_id_for_url = str(c)
+            assemble_url = f"http://127.0.0.1:12800/?cluster_id={cluster_id_for_url}"
 
             chosen = subset_all
             if strategy == 'center' and feature_cols and len(subset_feat) > 0:
@@ -689,20 +694,37 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
             cards.append(html.Div([
                 html.Div([
                     html.Div(f"簇 {c}", style={'fontSize': '13px', 'fontWeight': '600'}),
-                    html.Button(
-                        '查看',
-                        id={'type': 'rep-view-cluster', 'index': str(c)},
-                        n_clicks=0,
-                        style={
-                            'padding': '4px 10px',
-                            'fontSize': '12px',
-                            'backgroundColor': '#0066cc',
-                            'color': 'white',
-                            'border': 'none',
-                            'borderRadius': '4px',
-                            'cursor': 'pointer'
-                        }
-                    )
+                    html.Div([
+                        html.Button(
+                            '查看',
+                            id={'type': 'rep-view-cluster', 'index': str(c)},
+                            n_clicks=0,
+                            style={
+                                'padding': '4px 10px',
+                                'fontSize': '12px',
+                                'backgroundColor': '#0066cc',
+                                'color': 'white',
+                                'border': 'none',
+                                'borderRadius': '4px',
+                                'cursor': 'pointer'
+                            }
+                        ),
+                        html.A(
+                            '尝试拼对',
+                            href=assemble_url,
+                            target='_blank',
+                            style={
+                                'display': 'inline-block',
+                                'padding': '4px 10px',
+                                'fontSize': '12px',
+                                'backgroundColor': '#28a745',
+                                'color': 'white',
+                                'borderRadius': '4px',
+                                'textDecoration': 'none',
+                                'marginLeft': '6px'
+                            }
+                        )
+                    ], style={'display': 'flex', 'alignItems': 'center'})
                 ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'marginBottom': '6px'}),
                 html.Div(thumbs, style={'display': 'flex', 'gap': '6px', 'flexWrap': 'wrap'})
             ], style={
