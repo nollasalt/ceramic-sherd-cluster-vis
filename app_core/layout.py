@@ -80,8 +80,9 @@ def build_layout(
         ], style={'padding': '10px', 'backgroundColor': '#f5f5f5', 'borderRadius': '4px', 'marginBottom': '10px'}),
         dcc.Tabs(
             id='visualization-tabs',
-            value='scatter',
+            value='representatives',
             children=[
+                build_representatives_tab(),
                 build_scatter_tab(
                     fig=fig,
                     clusters=clusters,
@@ -96,7 +97,6 @@ def build_layout(
                 build_cluster_quality_tab(),
                 build_category_breakdown_tab(),
                 build_cluster_analysis_tab(),
-                build_representatives_tab(),
             ],
         ),
         html.Div(id='sample-panel', style={'marginTop': '12px', 'minHeight': '220px', 'borderTop': '1px solid #ddd', 'paddingTop': '8px'}),
@@ -141,6 +141,7 @@ def build_layout(
         dcc.Store(id='compare-selected-store', data=[]),
         dcc.Store(id='last-selected-store', data={}),
         dcc.Store(id='hover-state', data={'hovered_cluster': None}),
+        dcc.Store(id='rep-last-view-click', data={'cluster': None, 'count': 0}),
         dcc.Store(id='sample-cluster-mapping', data=df.set_index('sample_id')[cluster_col].to_dict()),
         build_modal()
     ], style={'margin': '8px', 'padding': '0'})

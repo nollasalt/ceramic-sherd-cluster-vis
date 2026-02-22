@@ -14,7 +14,7 @@ from pathlib import Path
 
 import dash
 import dash
-from dash import Input, Output, State, dcc, html
+from dash import ALL, Input, Output, State, dcc, html
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -687,7 +687,23 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
                 thumbs.append(html.Div('无可用图片', style={'fontSize': '12px', 'color': '#999'}))
 
             cards.append(html.Div([
-                html.Div(f"簇 {c}", style={'fontSize': '13px', 'fontWeight': '600', 'marginBottom': '6px'}),
+                html.Div([
+                    html.Div(f"簇 {c}", style={'fontSize': '13px', 'fontWeight': '600'}),
+                    html.Button(
+                        '查看',
+                        id={'type': 'rep-view-cluster', 'index': str(c)},
+                        n_clicks=0,
+                        style={
+                            'padding': '4px 10px',
+                            'fontSize': '12px',
+                            'backgroundColor': '#0066cc',
+                            'color': 'white',
+                            'border': 'none',
+                            'borderRadius': '4px',
+                            'cursor': 'pointer'
+                        }
+                    )
+                ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'marginBottom': '6px'}),
                 html.Div(thumbs, style={'display': 'flex', 'gap': '6px', 'flexWrap': 'wrap'})
             ], style={
                 'padding': '10px',
@@ -727,6 +743,42 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
             outlier_blocks = html.Div('缺少特征列，无法计算离群样本', style={'color': '#666', 'padding': '4px'})
 
         return cards, outlier_blocks
+
+    @app.callback(
+        Output('visualization-tabs', 'value', allow_duplicate=True),
+        Output('cluster-filter', 'value', allow_duplicate=True),
+        Output('rep-last-view-click', 'data', allow_duplicate=True),
+        Input({'type': 'rep-view-cluster', 'index': ALL}, 'n_clicks'),
+        State('rep-last-view-click', 'data'),
+        prevent_initial_call=True,
+    )
+    def view_cluster_from_representatives(_n_clicks, last_click):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            return dash.no_update, dash.no_update, dash.no_update
+
+        trigger_value = ctx.triggered[0].get('value')
+        if not isinstance(trigger_value, (int, float)) or trigger_value <= 0:
+            return dash.no_update, dash.no_update, dash.no_update
+
+        trigger_id = ctx.triggered_id
+        if not isinstance(trigger_id, dict):
+            return dash.no_update, dash.no_update, dash.no_update
+
+        cluster_id = trigger_id.get('index')
+        if cluster_id is None:
+            return dash.no_update, dash.no_update, dash.no_update
+
+        last_click = last_click or {}
+        if last_click.get('cluster') == cluster_id and int(last_click.get('count', 0)) == int(trigger_value):
+            return dash.no_update, dash.no_update, dash.no_update
+
+        try:
+            cluster_value = int(cluster_id)
+        except Exception:
+            cluster_value = cluster_id
+
+        return 'scatter', [cluster_value], {'cluster': cluster_id, 'count': int(trigger_value)}
 
     @app.callback(
         Output('heatmap-container', 'children'),
