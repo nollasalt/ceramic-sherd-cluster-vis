@@ -1,7 +1,10 @@
+"""类别构成标签页布局定义。"""
+
 from dash import dcc, html
 
 
 def build_category_breakdown_tab():
+    """构建类别构成页面，用于按簇/单位查看类别分布。"""
     return dcc.Tab(
         label='类别构成',
         value='category-breakdown',

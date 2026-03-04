@@ -1,7 +1,13 @@
+"""簇相似度矩阵标签页布局定义。"""
+
 from dash import dcc, html
 
 
 def build_similarity_tab():
+    """构建相似度矩阵页面。
+
+    包含度量类型、重排/标注选项、最近邻数量与矩阵图输出区域。
+    """
     return dcc.Tab(
         label='聚类相似度矩阵',
         value='similarity',

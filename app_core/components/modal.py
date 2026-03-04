@@ -1,9 +1,16 @@
-"""Modal component for image preview/controls."""
+"""
+Modal component for image preview/controls.
+提供全屏图片预览、缩放与旋转控制组件。
+"""
 from dash import html, dcc
 
 
 def build_modal():
-    """Construct the image modal overlay and related hidden controls."""
+    """
+    Construct the image modal overlay and related hidden controls.
+    Returns:
+        html.Div: 包含遮罩层、控制按钮和图片容器的模态组件。
+    """
     return html.Div([
         html.Div(id='image-modal', style={
             'display': 'none',

@@ -1,3 +1,5 @@
+"""应用级通用工具：颜色生成与部位符号映射。"""
+
 import plotly.express as px
 
 # 离散形状序列，用于在散点图中区分陶片部位
@@ -10,7 +12,7 @@ PART_SYMBOL_SEQUENCE = [
 _color_cache = {}
 
 def generate_distinct_colors(n_colors: int):
-    """生成 n 个视觉上不同的颜色（带缓存）。"""
+    """生成并缓存 `n_colors` 个可区分的离散颜色。"""
     if n_colors in _color_cache:
         return _color_cache[n_colors]
 
@@ -31,7 +33,7 @@ CLUSTER_COLORS = generate_distinct_colors(50)
 
 
 def get_part_symbol_settings(dataframe):
-    """生成基于部位字段的形状映射。"""
+    """根据 `part_C/part` 字段生成散点图 symbol 映射。"""
     symbol_col = None
     if 'part_C' in dataframe.columns and dataframe['part_C'].notna().any():
         symbol_col = 'part_C'

@@ -1,3 +1,5 @@
+"""构建聚类结果总表并合并陶片元信息。"""
+
 import os
 import pandas as pd
 
@@ -49,6 +51,7 @@ print(f"Rows after filtering: {len(df)}")
 # 4. 解析 sample_id / side
 # ========================
 def parse_filename(name):
+    """从图像文件名解析 `sample_id` 与 `side` 字段。"""
     stem = os.path.splitext(os.path.basename(name))[0]
     parts = stem.split("_")
     sample_id = parts[0]

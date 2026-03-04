@@ -1,3 +1,5 @@
+"""基于 DINO 特征执行 Leiden 聚类并导出簇目录。"""
+
 import os
 import shutil
 import pandas as pd
@@ -40,6 +42,7 @@ print(f"✅ 读取 {len(df)} 条特征记录")
 # 2. 主编号（合并 exterior / interior）
 # =========================================================
 def get_piece_id(filename):
+    """从文件名中提取陶片主编号（去除正反面后缀）。"""
     name = os.path.splitext(filename)[0]
     name = name.replace("_exterior", "").replace("_interior", "")
     return name.lower()
@@ -50,6 +53,7 @@ df["main_id"] = df["filename"].apply(get_piece_id)
 # 3. 每个陶片只保留两张（正反）
 # =========================================================
 def select_two_images(group):
+    """每个 `main_id` 仅保留两张图像用于正反面融合。"""
     if len(group) < 2:
         return pd.DataFrame([])
     return group.iloc[:2]
@@ -72,6 +76,7 @@ feature_cols = [c for c in df.columns if c not in ["filename", "main_id"]]
 # 5. 正反面特征融合（拼接，保留判别性）
 # =========================================================
 def fuse_features(group):
+    """将同一陶片的两张特征向量拼接为单个融合向量。"""
     v1 = group.iloc[0][feature_cols].values
     v2 = group.iloc[1][feature_cols].values
     fused = np.concatenate([v1,v2])

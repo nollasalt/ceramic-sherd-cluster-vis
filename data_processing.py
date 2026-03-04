@@ -71,6 +71,7 @@ def _prepare_clustering_data(features_csv_path, cluster_mode='merged'):
 
     # 获取主编号
     def get_piece_id(filename):
+        """提取陶片主编号，去除 interior/exterior 后缀。"""
         name = Path(filename).stem
         name = name.replace("_exterior", "").replace("_interior", "")
         return name.lower()

@@ -1,3 +1,12 @@
+"""基于 DINO 特征执行 KMeans 聚类并导出聚类结果。
+
+主要流程：
+1) 读取特征并按陶片主编号配对正反面；
+2) 融合两张图片特征并做标准化；
+3) 执行 KMeans 聚类并选取每簇代表样本；
+4) 按簇复制图片并写出 `cluster_metadata.json`。
+"""
+
 import os
 import json
 import shutil
@@ -35,7 +44,7 @@ print(f"读取 {len(df)} 条特征记录")
 
 # ========= 2. 主编号：只去 _exterior / _interior =========
 def get_piece_id(filename):
-
+    """从文件名提取陶片主编号（忽略 interior/exterior 后缀）。"""
     name = os.path.splitext(filename)[0]
     name = name.replace("_exterior", "").replace("_interior", "")
     return name.lower()
@@ -47,8 +56,9 @@ dropped_main_ids = []
 # ========= 3. 每个 main_id 只保留前两张（认为是正反） =========
 def select_two_images(group):
     """
-    不管正反，只要 main_id 一致 → 一个陶片
-    只保留前两张用于融合
+    对同一 `main_id` 仅保留两张图用于融合。
+
+    约束：少于两张的陶片会被丢弃，并记录到 `dropped_main_ids`。
     """
     mid = group["main_id"].iloc[0]
 
@@ -76,8 +86,9 @@ feature_cols = [c for c in df.columns if c not in ["filename", "main_id"]]
 # ========= 5. 拼接特征（两张图简单相加/平均） =========
 def fuse_features(group):
     """
-    两张图像 → 特征拼接（concat）
-    注意：group 正好 2 张图片
+    将同一陶片的两张图像特征做拼接（concat）。
+
+    说明：该策略保留正反面信息顺序，不做平均压缩。
     """
     vec1 = group.iloc[0][feature_cols].values
     vec2 = group.iloc[1][feature_cols].values

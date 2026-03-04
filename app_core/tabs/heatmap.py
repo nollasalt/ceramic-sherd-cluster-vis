@@ -1,7 +1,10 @@
+"""聚类特征热力图标签页布局定义。"""
+
 from dash import dcc, html
 
 
 def build_heatmap_tab():
+    """构建热力图标签页容器，用于承载聚类中心特征热图。"""
     return dcc.Tab(
         label='聚类特征热力图',
         value='heatmap',

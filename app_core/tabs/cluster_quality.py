@@ -1,7 +1,10 @@
+"""聚类质量标签页布局定义。"""
+
 from dash import dcc, html
 
 
 def build_cluster_quality_tab():
+    """构建聚类质量页面，展示质量指标卡、风险条图与细节表。"""
     return dcc.Tab(
         label='聚类质量',
         value='cluster-quality',

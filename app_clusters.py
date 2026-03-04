@@ -1,4 +1,7 @@
-"""Main entry for the Dash clustering app."""
+"""
+Main entry for the Dash clustering app.
+负责应用初始化、数据缓存、布局构建与回调注册。
+"""
 
 import os
 from pathlib import Path
@@ -48,6 +51,7 @@ FULL_IMAGE_CACHE = {}
 
 
 def load_dataset(csv_path: Path, cluster_mode: str):
+    """加载聚类表并提取可用于可视化/分析的数值特征列。"""
     df_raw = pd.read_csv(csv_path)
     cluster_col = "cluster_id"
     image_col = "image_name"
@@ -65,7 +69,9 @@ def load_dataset(csv_path: Path, cluster_mode: str):
 
 
 def find_image_path(image_path: str) -> Path | None:
-    """Locate an image by name across known roots, with a tiny in-process cache."""
+    """
+    Locate an image by name across known roots, with a tiny in-process cache.
+    """
 
     if not image_path:
         return None
@@ -105,6 +111,7 @@ def find_image_path(image_path: str) -> Path | None:
 
 
 def build_initial_figure(df: pd.DataFrame, feature_cols, cluster_col, hover_cols, custom_data):
+    """构建首页默认二维降维散点图（UMAP）。"""
     df_embed, reduction_key = ensure_dimensionality_reduction(
         df.copy(),
         feature_cols,
@@ -142,6 +149,7 @@ def build_initial_figure(df: pd.DataFrame, feature_cols, cluster_col, hover_cols
 
 
 def create_app():
+    """创建并配置 Dash 应用实例。"""
     df, feature_cols, raw_feature_cols, cluster_col, image_col = load_dataset(DATA_CSV, DEFAULT_CLUSTER_MODE)
 
     # 将数据集与元数据放入服务端缓存，避免前端携带大体量 JSON
@@ -181,6 +189,7 @@ def create_app():
     cluster_metadata = load_cluster_metadata()
 
     def get_filter_options(selected_clusters):
+        """根据已选簇返回联动筛选项（unit/part/type）。"""
         dff = df.copy()
         if selected_clusters:
             dff = dff[dff[cluster_col].isin(selected_clusters)]
@@ -219,6 +228,7 @@ def create_app():
 
     @server.route('/get_full_image')
     def get_full_image():
+        """根据查询参数返回大图 base64 数据。"""
         image_path = request.args.get('image_path', '')
         found = find_image_path(image_path)
         if not found or not found.exists():
@@ -241,6 +251,7 @@ def create_app():
 
 
 def main():
+    """应用启动入口，读取环境变量并运行 Dash 服务。"""
     port = int(os.environ.get('CERAMIC_PORT', APP_CONFIG['port']))
     debug = os.environ.get('CERAMIC_DEBUG', 'false').lower() == 'true'
 

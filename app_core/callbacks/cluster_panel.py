@@ -1,3 +1,5 @@
+"""簇图片面板分页回调。"""
+
 #负责“簇图片面板”的回调逻辑
 from pathlib import Path
 
@@ -10,7 +12,7 @@ PAGE_SIZE = 20
 
 
 def register_cluster_panel_callbacks(app):
-    """Register cluster image panel pagination callbacks."""
+    """注册簇图片面板的翻页与渲染回调。"""
 
     @app.callback(
         Output('cluster-panel', 'children'),
@@ -19,6 +21,7 @@ def register_cluster_panel_callbacks(app):
         Input('cluster-page', 'data')
     )
     def update_cluster_panel(image_paths, page):
+        """按页渲染簇缩略图，并返回页码指示文本。"""
         if not image_paths:
             return html.Div('点击点以加载该簇的图片'), ''
         total = len(image_paths)
@@ -56,6 +59,7 @@ def register_cluster_panel_callbacks(app):
         State('cluster-images-store', 'data')
     )
     def change_page(prev_clicks, next_clicks, current_page, image_paths):
+        """处理上一页/下一页按钮，计算并返回新页码。"""
         ctx = dash.callback_context
         if not ctx.triggered:
             return current_page or 1

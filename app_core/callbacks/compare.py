@@ -1,3 +1,5 @@
+"""样本对比面板回调。"""
+
 #管理“对比面板”的回调
 from pathlib import Path
 import json
@@ -9,7 +11,7 @@ from data_processing import img_to_base64
 
 
 def register_compare_callbacks(app):
-    """Register compare panel related callbacks."""
+    """注册手动对比面板相关回调。"""
 
     @app.callback(
         Output('compare-selected-store', 'data'),
@@ -21,6 +23,7 @@ def register_compare_callbacks(app):
         State('last-selected-store', 'data')
     )
     def update_compare_store(add_clicks, clear_clicks, clear_clicks_bottom, remove_clicks, selected_items, last_selected):
+        """维护对比列表状态（添加、移除、清空）。"""
         selected_items = selected_items or []
         ctx = dash.callback_context
         if not ctx.triggered:
@@ -52,6 +55,7 @@ def register_compare_callbacks(app):
         Input('compare-layout', 'value')
     )
     def render_compare(selected_items, card_size, layout_mode):
+        """根据当前选中样本渲染对比卡片区域。"""
         if not selected_items:
             return html.Div('点击散点图选中样本后，按“添加到比较”即可在此并排查看。', style={'color': '#666'})
 

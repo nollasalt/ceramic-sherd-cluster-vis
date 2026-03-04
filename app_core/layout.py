@@ -1,3 +1,5 @@
+"""应用主布局构建模块。"""
+
 import dash
 from dash import dcc, html
 from app_core.components.modal import build_modal
@@ -26,7 +28,10 @@ def build_layout(
     cluster_col,
     image_col,
 ):
-    """Construct the main Dash layout."""
+    """构建 Dash 主界面布局。
+
+    参数包含初始图形、筛选选项、聚类元数据及缓存字段，返回完整页面组件树。
+    """
     return html.Div([
         dcc.Location(id='url', refresh=True),
         html.Div([

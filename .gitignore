@@ -12,8 +12,10 @@ exterior/__pycache__/
 # 忽略聚类结果文件夹
 all_kmeans_new/
 
-# 忽略Python编译文件
 
+*.png
+# 忽略Python编译文件
+*.pyc
 # 忽略日志文件
 *.log
 

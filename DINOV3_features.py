@@ -1,3 +1,5 @@
+"""提取陶片图像的 DINOv3 特征并导出 CSV。"""
+
 import os
 import torch
 import numpy as np
@@ -38,6 +40,16 @@ transform = transforms.Compose([
 # 前景裁剪 + padding
 # =========================
 def crop_and_pad_foreground(image_rgba, target_size=224, margin_ratio=0.08):
+    """裁剪前景区域并按目标尺寸进行等比缩放与居中填充。
+
+    Args:
+        image_rgba: RGBA 格式输入图像。
+        target_size: 目标正方形尺寸。
+        margin_ratio: 前景边界外扩比例。
+
+    Returns:
+        PIL.Image | None: 处理后的 RGB 图像；若无有效前景则返回 None。
+    """
     rgba = np.array(image_rgba)
     alpha = rgba[:, :, 3] / 255.0
     mask = alpha > 0
@@ -81,6 +93,10 @@ def crop_and_pad_foreground(image_rgba, target_size=224, margin_ratio=0.08):
 # 主流程
 # =========================
 def extract_features():
+    """批量提取图像特征并保存到 `OUTPUT_CSV_PATH`。
+
+    流程包括：模型加载、图像预处理、前向推理、特征汇总与 CSV 导出。
+    """
     print(f"✅ 使用设备: {DEVICE}")
 
     # --- 加载模型 ---

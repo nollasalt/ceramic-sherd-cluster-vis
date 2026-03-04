@@ -13,6 +13,11 @@ class PerformanceCache:
     """简单的性能缓存类"""
     
     def __init__(self, max_size: int = 100):
+        """初始化缓存容器。
+
+        Args:
+            max_size: 缓存条目上限，超出后会淘汰最久未访问项。
+        """
         self.cache: Dict[str, Any] = {}
         self.access_times: Dict[str, float] = {}
         self.max_size = max_size
@@ -52,6 +57,7 @@ def cache_plot_result(func):
     """缓存图表结果的装饰器"""
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
+        """执行被装饰函数，并按参数缓存结果。"""
         # 生成缓存键
         cache_key = f"{func.__name__}_{hash(str(args) + str(sorted(kwargs.items())))}"
         

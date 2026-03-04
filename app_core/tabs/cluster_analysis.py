@@ -1,7 +1,13 @@
+"""簇分析标签页布局定义。"""
+
 from dash import dcc, html
 
 
 def build_cluster_analysis_tab():
+    """构建簇分析页面。
+
+    包含簇质量表、特征差异图、模式洞察和 Unit 层差异分析区域。
+    """
     return dcc.Tab(
         label='簇分析',
         value='cluster-analysis',
@@ -43,5 +49,40 @@ def build_cluster_analysis_tab():
                     style={'flex': '1', 'minWidth': '320px', 'padding': '0 8px'},
                 ),
             ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'alignItems': 'flex-start'}),
+            html.Div(
+                id='cluster-pattern-insights',
+                style={
+                    'marginTop': '12px',
+                    'padding': '12px',
+                    'border': '1px solid #e6e6e6',
+                    'borderRadius': '8px',
+                    'backgroundColor': '#fafafa'
+                }
+            ),
+            html.Div([
+                html.Div('Unit 层差异分析', style={'fontWeight': '600', 'marginBottom': '8px'}),
+                html.Div([
+                    html.Div([
+                        html.Label('Unit A'),
+                        dcc.Dropdown(id='unit-compare-a', placeholder='选择 Unit A')
+                    ], style={'flex': '1', 'minWidth': '200px'}),
+                    html.Div([
+                        html.Label('Unit B'),
+                        dcc.Dropdown(id='unit-compare-b', placeholder='选择 Unit B')
+                    ], style={'flex': '1', 'minWidth': '200px'}),
+                ], style={'display': 'flex', 'gap': '12px', 'marginBottom': '8px', 'padding': '0 4px'}),
+                html.Div(id='unit-compare-summary', style={'padding': '6px 4px', 'color': '#333'}),
+                dcc.Loading(
+                    id='unit-compare-loading',
+                    type='default',
+                    children=dcc.Graph(id='unit-compare-graph', style={'height': '360px'})
+                )
+            ], style={
+                'marginTop': '12px',
+                'padding': '12px',
+                'border': '1px solid #e6e6e6',
+                'borderRadius': '8px',
+                'backgroundColor': '#ffffff'
+            }),
         ],
     )

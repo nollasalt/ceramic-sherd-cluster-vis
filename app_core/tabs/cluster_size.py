@@ -1,7 +1,10 @@
+"""簇规模分布标签页布局定义。"""
+
 from dash import dcc, html
 
 
 def build_cluster_size_tab():
+    """构建簇规模可视化页面。"""
     return dcc.Tab(
         label='簇规模分布',
         value='cluster-size',

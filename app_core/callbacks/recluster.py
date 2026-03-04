@@ -1,4 +1,7 @@
-"""Reclustering callback extracted from the main app module."""
+"""
+Reclustering callback extracted from the main app module.
+负责在前端触发重新聚类并刷新结果。
+"""
 
 import json
 import shutil
@@ -17,7 +20,7 @@ from data_processing import (
 
 
 def register_recluster_callbacks(app, *, features_csv, image_root):
-    """Register reclustering callback."""
+    """注册重新聚类回调。"""
 
     @app.callback(
         [Output('recluster-status', 'children'),
@@ -29,6 +32,11 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
          State('reload-trigger', 'data')]
     )
     def perform_reclustering(n_clicks, n_clusters, cluster_mode, cluster_algorithm, current_trigger):
+        """执行聚类算法并写回簇目录与元数据。
+
+        Returns:
+            tuple[str, int | NoUpdate]: 状态提示文本与刷新触发计数。
+        """
         if n_clicks == 0 or n_clicks is None:
             return '', dash.no_update
 

@@ -1,7 +1,13 @@
+"""散点图标签页布局定义。"""
+
 from dash import dcc, html
 
 
 def build_scatter_tab(fig, clusters, init_unit_options, init_part_options, init_type_options, algorithm_options):
+    """构建散点图标签页。
+
+    包含降维参数控件、多条件筛选器、主散点图以及簇缩略图侧栏。
+    """
     return dcc.Tab(label='散点图', value='scatter', children=[
         html.Div([
             html.Div([

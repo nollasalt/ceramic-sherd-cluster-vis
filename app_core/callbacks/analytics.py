@@ -1,4 +1,7 @@
-"""Analytical callbacks split from the main app module."""
+"""
+Analytical callbacks split from the main app module.
+负责分析页签、质量评估、代表样本与相似度矩阵等回调。
+"""
 """
 这个文件是仪表盘的“分析/洞察”回调集合，负责在前端点击不同标签页时生成各类分析视图。
 核心职责概览（逻辑都注册为 Dash 回调，数据来自服务端缓存）：
@@ -34,7 +37,7 @@ except Exception:
 
 
 def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
-    """Register cluster analytics, heatmap, similarity, and modal callbacks."""
+    """注册分析相关回调（规模、质量、簇分析、代表样本、相似度等）。"""
 
     search_dirs = []
     if image_root:
@@ -49,6 +52,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
     search_dirs = seen_dirs
 
     def resolve_full_path(image_path: str) -> Path | None:
+        """在配置的图像目录中解析大图文件路径。"""
         if not image_path:
             return None
         target = Path(image_path)
@@ -72,6 +76,110 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
                 pass
         return None
 
+    def build_cluster_pattern_insights(dff, cluster_col, feature_cols, selected_cluster, sil_means):
+        """基于当前筛选数据生成可读的簇模式洞察文本。"""
+        if cluster_col not in dff.columns or len(dff) == 0:
+            return html.Div('暂无可分析的模式', style={'color': '#666'})
+
+        clusters = sorted(dff[cluster_col].dropna().unique())
+        if len(clusters) == 0:
+            return html.Div('暂无可分析的模式', style={'color': '#666'})
+
+        insights = []
+        size_series = dff[cluster_col].value_counts()
+        if len(size_series) > 0:
+            largest_id = size_series.index[0]
+            largest_n = int(size_series.iloc[0])
+            smallest_id = size_series.index[-1]
+            smallest_n = int(size_series.iloc[-1])
+            insights.append(
+                f"规模结构：最大簇 {largest_id}（{largest_n}）与最小簇 {smallest_id}（{smallest_n}）差异明显，可优先检查大簇内部是否还含子模式。"
+            )
+
+        cat_fields = [c for c in ['part_C', 'type_C', 'unit_C'] if c in dff.columns and dff[c].notna().any()]
+        best_field = None
+        best_avg_purity = -1.0
+        best_field_purity = {}
+        for field in cat_fields:
+            per_cluster = {}
+            for cid, grp in dff[[cluster_col, field]].dropna().groupby(cluster_col):
+                vc = grp[field].value_counts(normalize=True)
+                if len(vc) > 0:
+                    per_cluster[cid] = (float(vc.iloc[0]), str(vc.index[0]))
+            if per_cluster:
+                avg_purity = float(np.mean([v[0] for v in per_cluster.values()]))
+                if avg_purity > best_avg_purity:
+                    best_avg_purity = avg_purity
+                    best_field = field
+                    best_field_purity = per_cluster
+
+        if best_field and best_field_purity:
+            high_purity = [
+                (cid, ratio, label)
+                for cid, (ratio, label) in best_field_purity.items()
+                if ratio >= 0.70
+            ]
+            high_purity.sort(key=lambda x: x[1], reverse=True)
+            if high_purity:
+                top_text = '；'.join([f"簇 {cid}: {label} ({ratio:.1%})" for cid, ratio, label in high_purity[:3]])
+                insights.append(f"类别模式：按 {best_field} 统计，存在高纯度簇（≥70%），如 {top_text}。")
+            else:
+                insights.append(f"类别模式：按 {best_field} 统计，各簇纯度整体偏低，可能呈连续过渡而非离散分组。")
+
+        if feature_cols and len(clusters) >= 2:
+            work = dff.dropna(subset=feature_cols)
+            if len(work) >= 2:
+                centers_df = work.groupby(cluster_col)[feature_cols].mean()
+                if len(centers_df) >= 2:
+                    centers = centers_df.values
+                    center_ids = centers_df.index.to_list()
+                    diff = centers[:, None, :] - centers[None, :, :]
+                    dist_mat = np.sqrt(np.sum(diff ** 2, axis=2))
+                    np.fill_diagonal(dist_mat, np.inf)
+                    min_pos = np.unravel_index(np.argmin(dist_mat), dist_mat.shape)
+                    c1 = center_ids[min_pos[0]]
+                    c2 = center_ids[min_pos[1]]
+                    dmin = float(dist_mat[min_pos])
+                    insights.append(f"邻近关系：簇 {c1} 与簇 {c2} 的中心最接近（距离 {dmin:.3f}），建议重点比较这两个簇的边界样本。")
+
+        valid_sil = [(cid, val) for cid, val in sil_means.items() if not pd.isna(val)]
+        if valid_sil:
+            valid_sil.sort(key=lambda x: x[1], reverse=True)
+            best_c, best_s = valid_sil[0]
+            worst_c, worst_s = valid_sil[-1]
+            insights.append(f"分离质量：轮廓系数最好的是簇 {best_c}（{best_s:.3f}），最弱的是簇 {worst_c}（{worst_s:.3f}）。")
+
+        selected_detail = None
+        if selected_cluster is not None and feature_cols:
+            try:
+                cluster_center = dff[dff[cluster_col] == selected_cluster][feature_cols].mean().values
+                global_center = dff[feature_cols].mean().values
+                diff = cluster_center - global_center
+                abs_diff = np.abs(diff)
+                idx = np.argsort(abs_diff)[-3:][::-1]
+                if len(idx) > 0:
+                    top_desc = '、'.join([
+                        f"{feature_cols[i]}({'高' if diff[i] >= 0 else '低'})"
+                        for i in idx
+                    ])
+                    selected_detail = html.Div(
+                        f"当前选中簇 {selected_cluster} 的主要区分特征：{top_desc}。",
+                        style={'marginTop': '8px', 'color': '#444'}
+                    )
+            except Exception:
+                selected_detail = None
+
+        if not insights:
+            return html.Div('当前筛选下样本不足，暂时无法提取稳定模式。', style={'color': '#666'})
+
+        content = [
+            html.Div('自动模式洞察', style={'fontWeight': '600', 'marginBottom': '6px'}),
+            html.Ul([html.Li(text) for text in insights], style={'margin': '0', 'paddingLeft': '18px', 'color': '#333'})
+        ]
+        if selected_detail is not None:
+            content.append(selected_detail)
+        return html.Div(content)
+
     @app.callback(
         Output('cluster-size-graph', 'figure'),
         [Input('visualization-tabs', 'value'),
@@ -83,6 +191,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
     )
     @cache_plot_result
     def render_cluster_size(tab_value, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+        """渲染簇规模分布图，并给出最大簇与长尾占比信息。"""
         if tab_value != 'cluster-size':
             return dash.no_update
 
@@ -112,6 +221,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
         plot_df['cluster_label'] = plot_df['cluster'].astype(str)
 
         def to_int_or_index(lbl, fallback_idx):
+            """将簇标签安全转为整数索引，失败时回退默认索引。"""
             try:
                 return int(float(lbl))
             except Exception:
@@ -161,6 +271,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
     )
     @cache_plot_result
     def render_cluster_quality(tab_value, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+        """计算并渲染聚类质量指标、风险条图和明细表。"""
         if tab_value != 'cluster-quality':
             return dash.no_update, dash.no_update, dash.no_update
 
@@ -205,6 +316,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
         from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
 
         def safe_metric(fn, default=np.nan):
+            """安全执行 sklearn 指标函数，异常时返回默认值。"""
             try:
                 return float(fn(X, labels))
             except Exception:
@@ -215,6 +327,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
         db = safe_metric(davies_bouldin_score)
 
         def card(title, value, hint):
+            """构建单个质量指标卡片。"""
             txt = '无法计算' if np.isnan(value) else f"{value:.4f}"
             return html.Div([
                 html.Div(title, style={'fontSize': '13px', 'color': '#666', 'marginBottom': '6px'}),
@@ -294,6 +407,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
         detail_df['looseness'] = detail_df['intra_mean'] / (detail_df['inter_min'] + 1e-8)
 
         def status_color(looseness, sil):
+            """根据松散度与轮廓系数返回风险颜色。"""
             if pd.isna(looseness):
                 return '#cccccc'
             if looseness < 0.3 and (pd.isna(sil) or sil >= 0.2):
@@ -319,6 +433,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
         bar_fig.update_layout(margin=dict(l=40, r=30, t=60, b=80), showlegend=False)
 
         def fmt_val(v, digits=3):
+            """格式化数值，缺失值显示为 '-'。"""
             return '-' if pd.isna(v) else f"{v:.{digits}f}"
 
         table_rows = []
@@ -361,6 +476,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
     )
     @cache_plot_result
     def render_category_breakdown(tab_value, category_field, x_axis_mode, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+        """按类别字段渲染构成分布图（按簇或按 unit）。"""
         if tab_value != 'category-breakdown':
             return dash.no_update
 
@@ -431,6 +547,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
     @app.callback(
         [Output('cluster-quality-table', 'children'),
          Output('feature-diff-graph', 'figure'),
+         Output('cluster-pattern-insights', 'children'),
          Output('analysis-cluster-selector', 'options'),
          Output('analysis-cluster-selector', 'value')],
         [Input('visualization-tabs', 'value'),
@@ -445,8 +562,9 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
     )
     @cache_plot_result
     def render_cluster_analysis(tab_value, selected_cluster, diff_mode, topk, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+        """渲染簇分析表、特征差异图和自动模式洞察。"""
         if tab_value != 'cluster-analysis':
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
         # Use server-side cache to compute purity/feature diffs
         data_cache = get_data_cache()
@@ -466,7 +584,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
 
         if cluster_col not in dff.columns or len(dff) == 0:
             empty_fig = px.bar(title='暂无数据')
-            return html.Div('暂无数据'), empty_fig, [], None
+            return html.Div('暂无数据'), empty_fig, html.Div('暂无可分析模式'), [], None
 
         clusters = sorted(dff[cluster_col].dropna().unique())
         options = [{'label': str(c), 'value': c} for c in clusters]
@@ -523,6 +641,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
         rows.sort(key=lambda x: -x[1])
 
         def fmt(v):
+            """格式化显示值，浮点数保留 3 位小数。"""
             if isinstance(v, float):
                 return f"{v:.3f}" if not np.isnan(v) else '-'
             return str(v)
@@ -568,24 +687,182 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
             except Exception:
                 feat_fig = px.bar(title='特征差异计算失败')
 
-        return table, feat_fig, options, selected_cluster
+        pattern_insights = build_cluster_pattern_insights(
+            dff=dff,
+            cluster_col=cluster_col,
+            feature_cols=feature_cols,
+            selected_cluster=selected_cluster,
+            sil_means=sil_means,
+        )
+
+        return table, feat_fig, pattern_insights, options, selected_cluster
 
     @app.callback(
-        Output('representative-grid', 'children'),
-        Output('outlier-list', 'children'),
+        [Output('unit-compare-a', 'options'),
+         Output('unit-compare-a', 'value'),
+         Output('unit-compare-b', 'options'),
+         Output('unit-compare-b', 'value'),
+         Output('unit-compare-summary', 'children'),
+         Output('unit-compare-graph', 'figure')],
         [Input('visualization-tabs', 'value'),
-         Input('rep-samples-per-cluster', 'value'),
-         Input('rep-strategy', 'value'),
-         Input('outlier-count', 'value'),
+         Input('unit-compare-a', 'value'),
+         Input('unit-compare-b', 'value'),
          Input('cluster-filter', 'value'),
          Input('unit-filter', 'value'),
          Input('part-filter', 'value'),
          Input('type-filter', 'value')],
         State('data-store', 'data')
     )
-    def render_representatives(tab_value, samples_per_cluster, strategy, outlier_count, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+    @cache_plot_result
+    def render_unit_layer_analysis(tab_value, unit_a, unit_b, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+        """比较两个 Unit 层的簇构成差异并生成解读摘要。"""
+        if tab_value != 'cluster-analysis':
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+        data_cache = get_data_cache()
+        df = data_cache['df']
+        cluster_col = data_cache['cluster_col']
+
+        dff = df.copy()
+        if selected_clusters:
+            dff = dff[dff[cluster_col].isin(selected_clusters)]
+        if selected_units and 'unit_C' in dff.columns:
+            dff = dff[dff['unit_C'].isin(selected_units)]
+        if selected_parts and 'part_C' in dff.columns:
+            dff = dff[dff['part_C'].isin(selected_parts)]
+        if selected_types and 'type_C' in dff.columns:
+            dff = dff[dff['type_C'].isin(selected_types)]
+
+        if 'unit_C' not in dff.columns or len(dff) == 0:
+            empty_fig = px.bar(title='暂无 Unit 数据')
+            return [], None, [], None, html.Div('暂无 Unit 层可比较数据', style={'color': '#666'}), empty_fig
+
+        units = sorted(dff['unit_C'].dropna().unique())
+        options = [{'label': str(u), 'value': u} for u in units]
+
+        if not units:
+            empty_fig = px.bar(title='暂无 Unit 数据')
+            return [], None, [], None, html.Div('暂无 Unit 层可比较数据', style={'color': '#666'}), empty_fig
+
+        if unit_a not in units:
+            unit_a = units[0]
+        if unit_b not in units:
+            unit_b = units[1] if len(units) > 1 else units[0]
+        if unit_a == unit_b and len(units) > 1:
+            for candidate in units:
+                if candidate != unit_a:
+                    unit_b = candidate
+                    break
+
+        a_df = dff[dff['unit_C'] == unit_a]
+        b_df = dff[dff['unit_C'] == unit_b]
+
+        if len(a_df) == 0 or len(b_df) == 0:
+            empty_fig = px.bar(title='所选 Unit 样本不足')
+            return options, unit_a, options, unit_b, html.Div('所选 Unit 样本不足，无法比较', style={'color': '#666'}), empty_fig
+
+        a_cluster = a_df[cluster_col].value_counts(normalize=True)
+        b_cluster = b_df[cluster_col].value_counts(normalize=True)
+        all_clusters = sorted(set(a_cluster.index).union(set(b_cluster.index)))
+        records = []
+        for cid in all_clusters:
+            pa = float(a_cluster.get(cid, 0.0))
+            pb = float(b_cluster.get(cid, 0.0))
+            records.append({
+                'cluster': str(cid),
+                'delta_pct': (pa - pb) * 100.0,
+                'unit': f'{unit_a} - {unit_b}'
+            })
+        diff_df = pd.DataFrame(records)
+        diff_df['abs_delta'] = diff_df['delta_pct'].abs()
+        plot_df = diff_df.sort_values('abs_delta', ascending=False).head(12).sort_values('delta_pct', ascending=False)
+
+        fig = px.bar(
+            plot_df,
+            x='cluster',
+            y='delta_pct',
+            color='delta_pct',
+            color_continuous_scale='RdBu',
+            title=f'Unit 层簇构成差异（{unit_a} - {unit_b}，单位：百分点）'
+        )
+        fig.update_layout(margin=dict(l=40, r=20, t=60, b=70), coloraxis_showscale=False)
+        fig.update_traces(texttemplate='%{y:.1f}', textposition='outside')
+
+        def top_label_text(frame, field_name):
+            """提取指定类别字段的主导标签及占比。"""
+            if field_name not in frame.columns:
+                return None
+            series = frame[field_name].dropna().astype(str)
+            if len(series) == 0:
+                return None
+            vc = series.value_counts(normalize=True)
+            return str(vc.index[0]), float(vc.iloc[0])
+
+        summary_items = [
+            html.Li(f"样本规模：{unit_a} 有 {len(a_df)} 片，{unit_b} 有 {len(b_df)} 片。"),
+        ]
+
+        a_dom_cluster = a_df[cluster_col].value_counts(normalize=True)
+        b_dom_cluster = b_df[cluster_col].value_counts(normalize=True)
+        if len(a_dom_cluster) > 0 and len(b_dom_cluster) > 0:
+            summary_items.append(
+                html.Li(
+                    f"主导簇：{unit_a} 以簇 {a_dom_cluster.index[0]} 为主（{a_dom_cluster.iloc[0]:.1%}），"
+                    f"{unit_b} 以簇 {b_dom_cluster.index[0]} 为主（{b_dom_cluster.iloc[0]:.1%}）。"
+                )
+            )
+
+        for field, label in [('part_C', '器型部位'), ('type_C', '器类类型')]:
+            a_top = top_label_text(a_df, field)
+            b_top = top_label_text(b_df, field)
+            if a_top and b_top:
+                summary_items.append(
+                    html.Li(
+                        f"{label}偏好：{unit_a} 更集中在“{a_top[0]}”（{a_top[1]:.1%}），"
+                        f"{unit_b} 更集中在“{b_top[0]}”（{b_top[1]:.1%}）。"
+                    )
+                )
+
+        confidence = '高'
+        if min(len(a_df), len(b_df)) < 30:
+            confidence = '中'
+        if min(len(a_df), len(b_df)) < 12:
+            confidence = '低'
+        summary_items.append(html.Li(f"结果置信度：{confidence}（受样本量影响）。"))
+
+        summary = html.Div([
+            html.Div('地层差异解读', style={'fontWeight': '600', 'marginBottom': '6px'}),
+            html.Ul(summary_items, style={'margin': '0', 'paddingLeft': '18px'})
+        ])
+
+        return options, unit_a, options, unit_b, summary, fig
+
+    @app.callback(
+        Output('representative-grid', 'children'),
+        Output('outlier-list', 'children'),
+        Output('rep-visible-clusters', 'data'),
+        Output('rep-load-status', 'children'),
+        Output('rep-load-more-btn', 'disabled'),
+        [Input('visualization-tabs', 'value'),
+         Input('rep-samples-per-cluster', 'value'),
+         Input('rep-strategy', 'value'),
+         Input('outlier-count', 'value'),
+         Input('rep-load-more-btn', 'n_clicks'),
+         Input('cluster-filter', 'value'),
+         Input('unit-filter', 'value'),
+         Input('part-filter', 'value'),
+         Input('type-filter', 'value')],
+        State('rep-visible-clusters', 'data'),
+        State('data-store', 'data')
+    )
+    def render_representatives(tab_value, samples_per_cluster, strategy, outlier_count, load_more_clicks, selected_clusters, selected_units, selected_parts, selected_types, visible_clusters, data_store):
+        """渲染代表样本与离群样本，并支持分页增量加载簇。"""
         if tab_value != 'representatives':
-            return dash.no_update, dash.no_update
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+        page_size = 8
+        visible_clusters = int(visible_clusters or page_size)
+        visible_clusters = max(page_size, visible_clusters)
 
         # Thumbnails and outliers are derived from cached df to keep responses small
         data_cache = get_data_cache()
@@ -606,21 +883,29 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
 
         if cluster_col not in dff.columns or len(dff) == 0:
             empty_div = html.Div('暂无数据', style={'color': '#666', 'padding': '8px'})
-            return empty_div, empty_div
+            return empty_div, empty_div, page_size, '已显示 0/0 个簇', True
 
         clusters = sorted(dff[cluster_col].dropna().unique())
         if len(clusters) == 0:
             empty_div = html.Div('暂无数据', style={'color': '#666', 'padding': '8px'})
-            return empty_div, empty_div
+            return empty_div, empty_div, page_size, '已显示 0/0 个簇', True
+
+        ctx = dash.callback_context
+        trigger_id = None
+        if ctx.triggered:
+            trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+        if trigger_id == 'rep-load-more-btn':
+            visible_clusters = min(len(clusters), visible_clusters + page_size)
+        else:
+            visible_clusters = min(len(clusters), page_size)
+
+        active_clusters = clusters[:visible_clusters]
 
         n_per = int(samples_per_cluster or 1)
         n_per = max(1, min(12, n_per))
         outlier_k = int(outlier_count or 1)
         outlier_k = max(1, min(5, outlier_k))
-
-        max_total = 200
-        if len(clusters) * n_per > max_total:
-            n_per = max(1, max_total // len(clusters))
 
         base_root = Path(__file__).parent.parent.parent
         image_root_abs = Path(image_root)
@@ -628,6 +913,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
             image_root_abs = base_root / image_root_abs
 
         def resolve_path(val: str):
+            """解析图像路径并在常用目录中兜底查找。"""
             p = Path(str(val))
             if not p.is_absolute():
                 p = image_root_abs / p
@@ -644,7 +930,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
         cards = []
         outlier_blocks = []
         thumb_size = 120
-        for c in clusters:
+        for c in active_clusters:
             subset_all = dff[dff[cluster_col] == c]
             subset_feat = subset_all.dropna(subset=feature_cols) if feature_cols else subset_all
             try:
@@ -687,6 +973,25 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
                     ))
                 else:
                     thumbs.append(html.Div(str(Path(path).name), style={'fontSize': '12px', 'color': '#999'}))
+
+            while len(thumbs) < n_per:
+                thumbs.append(
+                    html.Div(
+                        '样本不足',
+                        style={
+                            'height': f'{thumb_size}px',
+                            'minWidth': '84px',
+                            'display': 'flex',
+                            'alignItems': 'center',
+                            'justifyContent': 'center',
+                            'border': '1px dashed #d0d0d0',
+                            'borderRadius': '4px',
+                            'backgroundColor': '#f8f8f8',
+                            'fontSize': '12px',
+                            'color': '#999'
+                        }
+                    )
+                )
 
             if len(thumbs) == 0:
                 thumbs.append(html.Div('无可用图片', style={'fontSize': '12px', 'color': '#999'}))
@@ -764,7 +1069,10 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
         if len(outlier_blocks) == 0:
             outlier_blocks = html.Div('缺少特征列，无法计算离群样本', style={'color': '#666', 'padding': '4px'})
 
-        return cards, outlier_blocks
+        load_status = f"已显示 {len(active_clusters)}/{len(clusters)} 个簇（每次加载 {page_size} 个）"
+        disable_load_more = len(active_clusters) >= len(clusters)
+
+        return cards, outlier_blocks, visible_clusters, load_status, disable_load_more
 
     @app.callback(
         Output('visualization-tabs', 'value', allow_duplicate=True),
@@ -775,6 +1083,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
         prevent_initial_call=True,
     )
     def view_cluster_from_representatives(_n_clicks, last_click):
+        """从代表样本页跳转到散点页并自动筛选目标簇。"""
         ctx = dash.callback_context
         if not ctx.triggered:
             return dash.no_update, dash.no_update, dash.no_update
@@ -808,6 +1117,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
         State('cluster-metadata-store', 'data')
     )
     def update_heatmap(tab_value, cluster_metadata):
+        """生成簇中心热力图并返回图形组件。"""
         if tab_value != 'heatmap' or cluster_metadata is None:
             return html.Div('请选择"聚类特征热力图"选项卡')
 
@@ -839,6 +1149,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
     )
     @cache_plot_result
     def update_similarity_matrix(tab_value, metric, options, neighbor_k, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+        """计算簇中心相似度/距离矩阵，并输出最近邻簇列表。"""
         if tab_value != 'similarity':
             return dash.no_update, dash.no_update
 
@@ -968,6 +1279,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
         prevent_initial_call=True
     )
     def load_full_image(image_path):
+        """加载并返回原图的高分辨率 base64 数据。"""
         if not image_path or image_path == '':
             return dash.no_update
         try:

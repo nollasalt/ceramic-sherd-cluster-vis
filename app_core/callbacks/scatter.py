@@ -1,3 +1,5 @@
+"""散点图相关回调：筛选联动、降维绘图与样本详情展示。"""
+
 #散点图
 from pathlib import Path
 import json
@@ -22,7 +24,7 @@ from data_processing import (
 
 
 def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options):
-    """Register scatter/filters related callbacks."""
+    """注册散点图与筛选器相关回调。"""
 
     @app.callback(
         [Output('unit-filter', 'options'),
@@ -31,6 +33,7 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
         Input('cluster-filter', 'value')
     )
     def update_filter_options(selected_clusters):
+        """根据簇筛选结果联动更新 unit/part/type 选项。"""
         return get_filter_options(selected_clusters)
 
     @app.callback(
@@ -39,6 +42,7 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
         [State('sample-cluster-mapping', 'data')]
     )
     def update_hover_state(hoverData, sample_cluster_mapping):
+        """将悬停样本映射为簇 ID，供前端高亮同簇点。"""
         if not hoverData or not sample_cluster_mapping:
             return {'hovered_cluster': None}
         try:
@@ -104,6 +108,10 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
     def update_plot(selected_clusters, selected_units, selected_parts, selected_types,
                     selected_algorithm, selected_dimension, z_axis='dimension',
                     reload_trigger=0, data_store=None):
+        """根据筛选条件与降维参数刷新散点图。
+
+        同时负责处理重聚类后的数据重载：更新服务端缓存、重建簇映射与筛选选项。
+        """
         data_cache = get_data_cache()
         current_feature_cols = data_cache['feature_cols']
         raw_feature_cols = data_cache.get('raw_feature_cols', current_feature_cols)
@@ -308,6 +316,7 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
         State('data-store', 'data')
     )
     def show_selected(clickData, data_store=None):
+        """根据点击点加载样本详情、配对图像与簇内图片列表。"""
         if not clickData:
             return [], {}, html.Div('点击一个点以查看图片'), ''
 
@@ -364,6 +373,7 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
         paired_names = []
 
         def side_label(name: str):
+            """根据文件名推断图像侧别（内侧/外侧/未知）。"""
             low = str(name).lower()
             if 'interior' in low:
                 return '内侧'
@@ -401,6 +411,7 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
         base_ext = Path(str(img_name)).suffix or '.png'
 
         def resolve_image_path(name, fallback_dir):
+            """按优先路径解析图像文件，必要时在聚类目录中递归查找。"""
             name = Path(str(name)).name
 
             fb_dir = Path(fallback_dir)
@@ -408,6 +419,7 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
                 fb_dir = base_root / fb_dir
 
             def search_with_name(candidate_name: str):
+                """以候选文件名尝试在多个目录中定位图像。"""
                 candidate = fb_dir / candidate_name
                 if candidate.exists():
                     return candidate
