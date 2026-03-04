@@ -16,6 +16,8 @@ all_kmeans_new/
 *.png
 # 忽略Python编译文件
 *.pyc
+*.pyo
+__pycache__/
 # 忽略日志文件
 *.log
 

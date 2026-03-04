@@ -549,22 +549,32 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
          Output('feature-diff-graph', 'figure'),
          Output('cluster-pattern-insights', 'children'),
          Output('analysis-cluster-selector', 'options'),
-         Output('analysis-cluster-selector', 'value')],
+         Output('analysis-cluster-selector', 'value'),
+         Output('analysis-table-page-index', 'data'),
+         Output('analysis-table-page-status', 'children'),
+         Output('analysis-table-prev', 'disabled'),
+         Output('analysis-table-next', 'disabled')],
         [Input('visualization-tabs', 'value'),
          Input('analysis-cluster-selector', 'value'),
          Input('feature-diff-mode', 'value'),
          Input('feature-topk-slider', 'value'),
+         Input('analysis-table-prev', 'n_clicks'),
+         Input('analysis-table-next', 'n_clicks'),
          Input('cluster-filter', 'value'),
          Input('unit-filter', 'value'),
          Input('part-filter', 'value'),
          Input('type-filter', 'value')],
+        State('analysis-table-page-index', 'data'),
         State('data-store', 'data')
     )
     @cache_plot_result
-    def render_cluster_analysis(tab_value, selected_cluster, diff_mode, topk, selected_clusters, selected_units, selected_parts, selected_types, data_store):
+    def render_cluster_analysis(tab_value, selected_cluster, diff_mode, topk, prev_clicks, next_clicks, selected_clusters, selected_units, selected_parts, selected_types, page_index, data_store):
         """渲染簇分析表、特征差异图和自动模式洞察。"""
         if tab_value != 'cluster-analysis':
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+        page_index = int(page_index or 1)
+        page_index = max(1, page_index)
 
         # Use server-side cache to compute purity/feature diffs
         data_cache = get_data_cache()
@@ -584,7 +594,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
 
         if cluster_col not in dff.columns or len(dff) == 0:
             empty_fig = px.bar(title='暂无数据')
-            return html.Div('暂无数据'), empty_fig, html.Div('暂无可分析模式'), [], None
+            return html.Div('暂无数据'), empty_fig, html.Div('暂无可分析模式'), [], None, 1, '第 0/0 页', True, True
 
         clusters = sorted(dff[cluster_col].dropna().unique())
         options = [{'label': str(c), 'value': c} for c in clusters]
@@ -646,6 +656,27 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
                 return f"{v:.3f}" if not np.isnan(v) else '-'
             return str(v)
 
+        page_size = 12
+        total_rows = len(rows)
+        total_pages = max(1, (total_rows + page_size - 1) // page_size)
+
+        ctx = dash.callback_context
+        trigger_id = None
+        if ctx.triggered:
+            trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+        if trigger_id == 'analysis-table-prev':
+            page_index = max(1, page_index - 1)
+        elif trigger_id == 'analysis-table-next':
+            page_index = min(total_pages, page_index + 1)
+        else:
+            page_index = 1
+
+        page_index = max(1, min(page_index, total_pages))
+        start_idx = (page_index - 1) * page_size
+        end_idx = min(start_idx + page_size, total_rows)
+        page_rows = rows[start_idx:end_idx]
+
         table = html.Table([
             html.Thead(html.Tr([
                 html.Th('簇'), html.Th('规模'), html.Th('纯度'), html.Th('主类别'), html.Th('簇内轮廓')
@@ -657,7 +688,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
                     html.Td(fmt(purity)),
                     html.Td(top_lbl),
                     html.Td(fmt(sil))
-                ]) for cid, size, purity, top_lbl, sil in rows
+                ]) for cid, size, purity, top_lbl, sil in page_rows
             ])
         ], style={'width': '100%', 'borderCollapse': 'collapse'})
 
@@ -695,7 +726,11 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
             sil_means=sil_means,
         )
 
-        return table, feat_fig, pattern_insights, options, selected_cluster
+        page_status = f"第 {page_index}/{total_pages} 页｜簇 {start_idx + 1}-{start_idx + len(page_rows)} / {total_rows}"
+        prev_disabled = page_index <= 1
+        next_disabled = page_index >= total_pages
+
+        return table, feat_fig, pattern_insights, options, selected_cluster, page_index, page_status, prev_disabled, next_disabled
 
     @app.callback(
         [Output('unit-compare-a', 'options'),
@@ -840,29 +875,31 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
     @app.callback(
         Output('representative-grid', 'children'),
         Output('outlier-list', 'children'),
-        Output('rep-visible-clusters', 'data'),
-        Output('rep-load-status', 'children'),
-        Output('rep-load-more-btn', 'disabled'),
+        Output('rep-page-index', 'data'),
+        Output('rep-page-status', 'children'),
+        Output('rep-page-prev', 'disabled'),
+        Output('rep-page-next', 'disabled'),
         [Input('visualization-tabs', 'value'),
          Input('rep-samples-per-cluster', 'value'),
          Input('rep-strategy', 'value'),
          Input('outlier-count', 'value'),
-         Input('rep-load-more-btn', 'n_clicks'),
+         Input('rep-page-prev', 'n_clicks'),
+         Input('rep-page-next', 'n_clicks'),
          Input('cluster-filter', 'value'),
          Input('unit-filter', 'value'),
          Input('part-filter', 'value'),
          Input('type-filter', 'value')],
-        State('rep-visible-clusters', 'data'),
+        State('rep-page-index', 'data'),
         State('data-store', 'data')
     )
-    def render_representatives(tab_value, samples_per_cluster, strategy, outlier_count, load_more_clicks, selected_clusters, selected_units, selected_parts, selected_types, visible_clusters, data_store):
+    def render_representatives(tab_value, samples_per_cluster, strategy, outlier_count, prev_clicks, next_clicks, selected_clusters, selected_units, selected_parts, selected_types, page_index, data_store):
         """渲染代表样本与离群样本，并支持分页增量加载簇。"""
         if tab_value != 'representatives':
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
         page_size = 8
-        visible_clusters = int(visible_clusters or page_size)
-        visible_clusters = max(page_size, visible_clusters)
+        page_index = int(page_index or 1)
+        page_index = max(1, page_index)
 
         # Thumbnails and outliers are derived from cached df to keep responses small
         data_cache = get_data_cache()
@@ -883,24 +920,35 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
 
         if cluster_col not in dff.columns or len(dff) == 0:
             empty_div = html.Div('暂无数据', style={'color': '#666', 'padding': '8px'})
-            return empty_div, empty_div, page_size, '已显示 0/0 个簇', True
+            return empty_div, empty_div, 1, '第 0/0 页（0 个簇）', True, True
 
         clusters = sorted(dff[cluster_col].dropna().unique())
         if len(clusters) == 0:
             empty_div = html.Div('暂无数据', style={'color': '#666', 'padding': '8px'})
-            return empty_div, empty_div, page_size, '已显示 0/0 个簇', True
+            return empty_div, empty_div, 1, '第 0/0 页（0 个簇）', True, True
+
+        total_pages = max(1, (len(clusters) + page_size - 1) // page_size)
 
         ctx = dash.callback_context
         trigger_id = None
         if ctx.triggered:
             trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
-        if trigger_id == 'rep-load-more-btn':
-            visible_clusters = min(len(clusters), visible_clusters + page_size)
+        if trigger_id == 'rep-page-prev':
+            page_index = max(1, page_index - 1)
+        elif trigger_id == 'rep-page-next':
+            page_index = min(total_pages, page_index + 1)
         else:
-            visible_clusters = min(len(clusters), page_size)
+            page_index = 1
 
-        active_clusters = clusters[:visible_clusters]
+        page_index = max(1, min(page_index, total_pages))
+        start_idx = (page_index - 1) * page_size
+        end_idx = min(start_idx + page_size, len(clusters))
+        active_clusters = clusters[start_idx:end_idx]
+
+        if len(active_clusters) == 0:
+            empty_div = html.Div('暂无数据', style={'color': '#666', 'padding': '8px'})
+            return empty_div, empty_div, 1, '第 0/0 页（0 个簇）', True, True
 
         n_per = int(samples_per_cluster or 1)
         n_per = max(1, min(12, n_per))
@@ -1069,10 +1117,11 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
         if len(outlier_blocks) == 0:
             outlier_blocks = html.Div('缺少特征列，无法计算离群样本', style={'color': '#666', 'padding': '4px'})
 
-        load_status = f"已显示 {len(active_clusters)}/{len(clusters)} 个簇（每次加载 {page_size} 个）"
-        disable_load_more = len(active_clusters) >= len(clusters)
+        page_status = f"第 {page_index}/{total_pages} 页｜簇 {start_idx + 1}-{start_idx + len(active_clusters)} / {len(clusters)}"
+        disable_prev = page_index <= 1
+        disable_next = page_index >= total_pages
 
-        return cards, outlier_blocks, visible_clusters, load_status, disable_load_more
+        return cards, outlier_blocks, page_index, page_status, disable_prev, disable_next
 
     @app.callback(
         Output('visualization-tabs', 'value', allow_duplicate=True),

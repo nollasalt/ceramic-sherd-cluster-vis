@@ -51,12 +51,11 @@ def build_representatives_tab():
                     type='default',
                     children=html.Div(id='representative-grid', style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '12px'}),
                 ),
-                dcc.Store(id='rep-visible-clusters', data=8),
+                dcc.Store(id='rep-page-index', data=1),
                 html.Div([
-                    html.Div(id='rep-load-status', style={'fontSize': '13px', 'color': '#555'}),
                     html.Button(
-                        '加载更多簇',
-                        id='rep-load-more-btn',
+                        '上一页',
+                        id='rep-page-prev',
                         n_clicks=0,
                         style={
                             'backgroundColor': '#ffffff',
@@ -66,7 +65,21 @@ def build_representatives_tab():
                             'cursor': 'pointer',
                             'borderRadius': '4px'
                         }
-                    )
+                    ),
+                    html.Div(id='rep-page-status', style={'fontSize': '13px', 'color': '#555'}),
+                    html.Button(
+                        '下一页',
+                        id='rep-page-next',
+                        n_clicks=0,
+                        style={
+                            'backgroundColor': '#ffffff',
+                            'color': '#333',
+                            'border': '1px solid #ccc',
+                            'padding': '6px 14px',
+                            'cursor': 'pointer',
+                            'borderRadius': '4px'
+                        }
+                    ),
                 ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'marginTop': '8px'}),
                 html.Div(id='outlier-list', style={'marginTop': '12px', 'fontSize': '13px', 'color': '#333'}),
             ], style={'marginTop': '12px', 'padding': '0 8px'}),

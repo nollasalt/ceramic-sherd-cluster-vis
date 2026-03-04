@@ -43,7 +43,15 @@ def build_cluster_analysis_tab():
                 ], style={'width': '200px'}),
             ], style={'display': 'flex', 'alignItems': 'center', 'gap': '12px', 'marginBottom': '12px', 'padding': '0 8px'}),
             html.Div([
-                html.Div(id='cluster-quality-table', style={'flex': '1', 'minWidth': '320px', 'padding': '0 8px'}),
+                html.Div([
+                    html.Div(id='cluster-quality-table', style={'flex': '1', 'minWidth': '320px'}),
+                    dcc.Store(id='analysis-table-page-index', data=1),
+                    html.Div([
+                        html.Button('上一页', id='analysis-table-prev', n_clicks=0),
+                        html.Div(id='analysis-table-page-status', style={'fontSize': '13px', 'color': '#555'}),
+                        html.Button('下一页', id='analysis-table-next', n_clicks=0),
+                    ], style={'display': 'flex', 'alignItems': 'center', 'justifyContent': 'space-between', 'gap': '8px', 'marginTop': '8px'})
+                ], style={'flex': '1', 'minWidth': '320px', 'padding': '0 8px'}),
                 html.Div(
                     dcc.Loading(id='feature-diff-loading', type='default', children=dcc.Graph(id='feature-diff-graph', style={'height': '420px'})),
                     style={'flex': '1', 'minWidth': '320px', 'padding': '0 8px'},
