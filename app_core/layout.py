@@ -11,6 +11,9 @@ from app_core.tabs.cluster_quality import build_cluster_quality_tab
 from app_core.tabs.category_breakdown import build_category_breakdown_tab
 from app_core.tabs.cluster_analysis import build_cluster_analysis_tab
 from app_core.tabs.representatives import build_representatives_tab
+from app_core.tabs.help import build_help_tab
+from app_core.tabs.stratigraphy import build_stratigraphy_tab
+from app_core.tabs.cooccurrence import build_cooccurrence_tab
 
 
 def build_layout(
@@ -87,6 +90,7 @@ def build_layout(
             id='visualization-tabs',
             value='representatives',
             children=[
+                build_help_tab(),
                 build_representatives_tab(),
                 build_scatter_tab(
                     fig=fig,
@@ -102,6 +106,8 @@ def build_layout(
                 build_cluster_quality_tab(),
                 build_category_breakdown_tab(),
                 build_cluster_analysis_tab(),
+                build_stratigraphy_tab(),
+                build_cooccurrence_tab(),
             ],
         ),
         html.Div(id='sample-panel', style={'marginTop': '12px', 'minHeight': '220px', 'borderTop': '1px solid #ddd', 'paddingTop': '8px'}),
