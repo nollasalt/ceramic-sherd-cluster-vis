@@ -29,9 +29,10 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
         [State('n-clusters-input', 'value'),
          State('cluster-mode-selector', 'value'),
          State('cluster-algorithm-selector', 'value'),
+         State('pca-components-input', 'value'),
          State('reload-trigger', 'data')]
     )
-    def perform_reclustering(n_clicks, n_clusters, cluster_mode, cluster_algorithm, current_trigger):
+    def perform_reclustering(n_clicks, n_clusters, cluster_mode, cluster_algorithm, pca_components, current_trigger):
         """执行聚类算法并写回簇目录与元数据。
 
         Returns:
@@ -42,12 +43,16 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
 
         try:
             cluster_algorithm = cluster_algorithm or 'kmeans'
+            pca_comp = int(pca_components) if pca_components else None
+            if pca_comp == 0:
+                pca_comp = None
 
             if cluster_algorithm == 'kmeans':
                 clustering_result = perform_kmeans_clustering(
                     features_csv_path=features_csv,
                     n_clusters=n_clusters,
-                    cluster_mode=cluster_mode
+                    cluster_mode=cluster_mode,
+                    pca_components=pca_comp,
                 )
             elif cluster_algorithm.startswith('agglomerative'):
                 _, _, linkage = cluster_algorithm.partition('-')
@@ -56,7 +61,8 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                     features_csv_path=features_csv,
                     n_clusters=n_clusters,
                     cluster_mode=cluster_mode,
-                    linkage=linkage
+                    linkage=linkage,
+                    pca_components=pca_comp,
                 )
             elif cluster_algorithm.startswith('spectral'):
                 _, _, assign_labels = cluster_algorithm.partition('-')
@@ -65,12 +71,14 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                     features_csv_path=features_csv,
                     n_clusters=n_clusters,
                     cluster_mode=cluster_mode,
-                    assign_labels=assign_labels
+                    assign_labels=assign_labels,
+                    pca_components=pca_comp,
                 )
             elif cluster_algorithm == 'leiden':
                 clustering_result = perform_leiden_clustering(
                     features_csv_path=features_csv,
-                    cluster_mode=cluster_mode
+                    cluster_mode=cluster_mode,
+                    pca_components=pca_comp,
                 )
             else:
                 raise ValueError(f"不支持的聚类算法: {cluster_algorithm}")
@@ -147,7 +155,8 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                 'spectral-kmeans': '谱聚类',
                 'leiden': 'Leiden (kNN 图)'
             }
-            status = f'✓ 聚类完成! 算法={algo_display.get(cluster_algorithm, algo_name)}, 模式={mode_display}, K={clustering_result["n_clusters"]}, 轮廓系数={silhouette_avg:.3f}'
+            pca_display = f', PCA={pca_comp}维' if pca_comp else ''
+            status = f'✓ 聚类完成! 算法={algo_display.get(cluster_algorithm, algo_name)}, 模式={mode_display}, K={clustering_result["n_clusters"]}{pca_display}, 轮廓系数={silhouette_avg:.3f}'
 
             success_msg = html.Div([
                 html.Span(status, style={'color': 'green', 'fontWeight': 'bold'}),

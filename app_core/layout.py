@@ -116,6 +116,24 @@ def build_layout(
                     style={'display': 'inline-flex', 'alignItems': 'center'},
                 ),
             ], style={'display': 'flex', 'alignItems': 'center', 'gap': '10px', 'paddingLeft': '4px'}),
+
+            # 组 5：PCA 预处理
+            html.Div([
+                html.Span('PCA预处理', className='control-label-inline'),
+                dcc.Dropdown(
+                    id='pca-components-input',
+                    options=[
+                        {'label': '不降维', 'value': 0},
+                        {'label': '32维', 'value': 32},
+                        {'label': '48维', 'value': 48},
+                        {'label': '64维', 'value': 64},
+                        {'label': '96维', 'value': 96},
+                    ],
+                    value=64,
+                    clearable=False,
+                    style={'width': '90px'},
+                ),
+            ], className='top-control-group'),
         ], className='top-control-bar'),
 
         dcc.Tabs(

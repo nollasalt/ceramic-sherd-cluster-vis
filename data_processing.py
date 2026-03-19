@@ -58,7 +58,7 @@ def load_cluster_metadata(path: Path = DEFAULT_CLUSTER_METADATA_PATH):
 # ============================================
 # 聚类功能
 # ============================================
-def _prepare_clustering_data(features_csv_path, cluster_mode='merged'):
+def _prepare_clustering_data(features_csv_path, cluster_mode='merged', pca_components=None):
     """加载特征并按聚类模式准备特征矩阵"""
     # 读取特征
     df = pd.read_csv(features_csv_path).copy()
@@ -169,20 +169,31 @@ def _prepare_clustering_data(features_csv_path, cluster_mode='merged'):
 
     print(f"特征维度: {features.shape}")
 
+    # ── PCA 预处理（可选） ────────────────────────────────────────────────────
+    pca_model = None
+    if pca_components is not None and pca_components < features_scaled.shape[1]:
+        n_comp = min(pca_components, features_scaled.shape[0] - 1)
+        print(f"应用 PCA: {features_scaled.shape[1]} → {n_comp} 维...")
+        pca_model = PCA(n_components=n_comp, random_state=42)
+        features_scaled = pca_model.fit_transform(features_scaled)
+        explained = pca_model.explained_variance_ratio_.sum()
+        print(f"PCA 累计解释方差: {explained:.3f}")
+
     return {
         'features': features,
         'features_scaled': features_scaled,
         'piece_ids': piece_ids,
-        'selected_df': selected_df
+        'selected_df': selected_df,
+        'pca_model': pca_model,
     }
 
 
-def perform_kmeans_clustering(features_csv_path, n_clusters=20, cluster_mode='merged'):
+def perform_kmeans_clustering(features_csv_path, n_clusters=20, cluster_mode='merged', pca_components=None):
     """执行 K-Means 聚类"""
     from sklearn.cluster import KMeans
     from sklearn.metrics import silhouette_score
 
-    prep = _prepare_clustering_data(features_csv_path, cluster_mode)
+    prep = _prepare_clustering_data(features_csv_path, cluster_mode, pca_components=pca_components)
     features = prep['features']
     features_scaled = prep['features_scaled']
     piece_ids = prep['piece_ids']
@@ -222,12 +233,12 @@ def perform_kmeans_clustering(features_csv_path, n_clusters=20, cluster_mode='me
     }
 
 
-def perform_agglomerative_clustering(features_csv_path, n_clusters=20, cluster_mode='merged', linkage='ward'):
+def perform_agglomerative_clustering(features_csv_path, n_clusters=20, cluster_mode='merged', linkage='ward', pca_components=None):
     """执行层次聚类（凝聚式）"""
     from sklearn.cluster import AgglomerativeClustering
     from sklearn.metrics import silhouette_score
 
-    prep = _prepare_clustering_data(features_csv_path, cluster_mode)
+    prep = _prepare_clustering_data(features_csv_path, cluster_mode, pca_components=pca_components)
     features = prep['features']
     features_scaled = prep['features_scaled']
     piece_ids = prep['piece_ids']
@@ -277,11 +288,11 @@ def perform_agglomerative_clustering(features_csv_path, n_clusters=20, cluster_m
     }
 
 
-def perform_spectral_clustering(features_csv_path, n_clusters=20, cluster_mode='merged', assign_labels='kmeans', gamma=None):
+def perform_spectral_clustering(features_csv_path, n_clusters=20, cluster_mode='merged', assign_labels='kmeans', gamma=None, pca_components=None):
     """执行谱聚类；gamma 未指定时默认 1.0"""
     from sklearn.metrics import silhouette_score
 
-    prep = _prepare_clustering_data(features_csv_path, cluster_mode)
+    prep = _prepare_clustering_data(features_csv_path, cluster_mode, pca_components=pca_components)
     features = prep['features']
     features_scaled = prep['features_scaled']
     piece_ids = prep['piece_ids']
@@ -554,7 +565,8 @@ def perform_leiden_clustering(
     topk=30,
     second_order_weight=0.05,
     resolution=2.5,
-    min_diffusion_weight=0.01
+    min_diffusion_weight=0.01,
+    pca_components=None,
 ):
     """使用 mutual kNN 图和 Leiden 社区发现进行聚类。
 
@@ -572,7 +584,7 @@ def perform_leiden_clustering(
             "Leiden 聚类需要安装 python-igraph 和 leidenalg, 以及 scipy"
         ) from exc
 
-    prep = _prepare_clustering_data(features_csv_path, cluster_mode)
+    prep = _prepare_clustering_data(features_csv_path, cluster_mode, pca_components=pca_components)
     features = prep['features']
     features_scaled = prep['features_scaled']
     piece_ids = prep['piece_ids']
