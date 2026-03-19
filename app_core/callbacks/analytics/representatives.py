@@ -1,4 +1,4 @@
-"""代表样本与离群点展示回调。"""
+"""代表样本展示回调。"""
 from pathlib import Path
 
 import dash
@@ -7,8 +7,6 @@ import numpy as np
 import pandas as pd
 
 from app_core.data_cache import get_data_cache
-from data_processing import img_to_base64
-from performance_utils import image_cache
 
 
 def register_representatives_callbacks(app, *, image_root):
@@ -35,7 +33,6 @@ def register_representatives_callbacks(app, *, image_root):
 
     @app.callback(
         Output('representative-grid', 'children'),
-        Output('outlier-list', 'children'),
         Output('rep-page-index', 'data'),
         Output('rep-page-status', 'children'),
         Output('rep-page-prev', 'disabled'),
@@ -43,7 +40,6 @@ def register_representatives_callbacks(app, *, image_root):
         [Input('visualization-tabs', 'value'),
          Input('rep-samples-per-cluster', 'value'),
          Input('rep-strategy', 'value'),
-         Input('outlier-count', 'value'),
          Input('rep-page-prev', 'n_clicks'),
          Input('rep-page-next', 'n_clicks'),
          Input('cluster-filter', 'value'),
@@ -53,14 +49,18 @@ def register_representatives_callbacks(app, *, image_root):
         State('rep-page-index', 'data'),
         State('data-store', 'data')
     )
-    def render_representatives(tab_value, samples_per_cluster, strategy, outlier_count, prev_clicks, next_clicks, selected_clusters, selected_units, selected_parts, selected_types, page_index, data_store):
-        """渲染代表样本与离群样本，并支持分页增量加载簇。"""
+    def render_representatives(
+        tab_value, samples_per_cluster, strategy,
+        prev_clicks, next_clicks,
+        selected_clusters, selected_units, selected_parts, selected_types,
+        page_index, data_store,
+    ):
+        """渲染代表样本，支持分页增量加载簇。图像通过 /img/ 路由直接请求，不再 base64 编码。"""
         if tab_value != 'representatives':
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
         page_size = 8
-        page_index = int(page_index or 1)
-        page_index = max(1, page_index)
+        page_index = max(1, int(page_index or 1))
 
         data_cache = get_data_cache()
         df = data_cache['df']
@@ -78,21 +78,19 @@ def register_representatives_callbacks(app, *, image_root):
         if selected_types and 'type_C' in dff.columns:
             dff = dff[dff['type_C'].isin(selected_types)]
 
+        _empty = html.Div('暂无数据', style={'color': '#666', 'padding': '8px'})
+
         if cluster_col not in dff.columns or len(dff) == 0:
-            empty_div = html.Div('暂无数据', style={'color': '#666', 'padding': '8px'})
-            return empty_div, empty_div, 1, '第 0/0 页（0 个簇）', True, True
+            return _empty, 1, '第 0/0 页（0 个簇）', True, True
 
         clusters = sorted(dff[cluster_col].dropna().unique())
         if len(clusters) == 0:
-            empty_div = html.Div('暂无数据', style={'color': '#666', 'padding': '8px'})
-            return empty_div, empty_div, 1, '第 0/0 页（0 个簇）', True, True
+            return _empty, 1, '第 0/0 页（0 个簇）', True, True
 
         total_pages = max(1, (len(clusters) + page_size - 1) // page_size)
 
         ctx = dash.callback_context
-        trigger_id = None
-        if ctx.triggered:
-            trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
 
         if trigger_id == 'rep-page-prev':
             page_index = max(1, page_index - 1)
@@ -103,21 +101,15 @@ def register_representatives_callbacks(app, *, image_root):
 
         page_index = max(1, min(page_index, total_pages))
         start_idx = (page_index - 1) * page_size
-        end_idx = min(start_idx + page_size, len(clusters))
-        active_clusters = clusters[start_idx:end_idx]
+        active_clusters = clusters[start_idx:start_idx + page_size]
 
         if len(active_clusters) == 0:
-            empty_div = html.Div('暂无数据', style={'color': '#666', 'padding': '8px'})
-            return empty_div, empty_div, 1, '第 0/0 页（0 个簇）', True, True
+            return _empty, 1, '第 0/0 页（0 个簇）', True, True
 
-        n_per = int(samples_per_cluster or 1)
-        n_per = max(1, min(12, n_per))
-        outlier_k = int(outlier_count or 1)
-        outlier_k = max(1, min(5, outlier_k))
-
-        cards = []
-        outlier_blocks = []
+        n_per = max(1, min(12, int(samples_per_cluster or 1)))
         thumb_size = 120
+        cards = []
+
         for c in active_clusters:
             subset_all = dff[dff[cluster_col] == c]
             subset_feat = subset_all.dropna(subset=feature_cols) if feature_cols else subset_all
@@ -125,16 +117,14 @@ def register_representatives_callbacks(app, *, image_root):
                 cluster_id_for_url = int(c)
             except Exception:
                 cluster_id_for_url = str(c)
-            assemble_url = f"http://127.0.0.1:12800/?cluster_id={cluster_id_for_url}"
+            assemble_url = f'http://127.0.0.1:12800/?cluster_id={cluster_id_for_url}'
 
-            chosen = subset_all
             if strategy == 'center' and feature_cols and len(subset_feat) > 0:
                 center_vec = subset_feat[feature_cols].mean().values
                 distances = np.linalg.norm(subset_feat[feature_cols].values - center_vec, axis=1)
-                subset_feat = subset_feat.assign(_dist=distances)
-                chosen = subset_feat.nsmallest(n_per, '_dist')
+                chosen = subset_feat.assign(_dist=distances).nsmallest(n_per, '_dist')
             elif strategy == 'random':
-                chosen = subset_all.sample(n=min(n_per, len(subset_all)), random_state=42) if len(subset_all) > 0 else subset_all
+                chosen = subset_all.sample(n=min(n_per, len(subset_all)), random_state=42)
             else:
                 chosen = subset_all.head(n_per)
 
@@ -145,164 +135,64 @@ def register_representatives_callbacks(app, *, image_root):
             thumbs = []
             for _, row in chosen.head(n_per).iterrows():
                 img_val = row.get('image_name') if 'image_name' in row else row.get(image_col)
-                path = resolve_path(img_val)
-                cache_key = f"rep_thumb_{Path(path).name}_{thumb_size}"
-                b64 = image_cache.get(cache_key) if image_cache else None
-                if b64 is None:
-                    b64 = img_to_base64(path, max_size=thumb_size)
-                    if image_cache and b64:
-                        image_cache.set(cache_key, b64)
-                if b64:
-                    thumbs.append(html.Img(
-                        src=b64,
-                        style={'height': f'{thumb_size}px', 'border': '1px solid #ddd', 'borderRadius': '4px', 'backgroundColor': '#fafafa'},
-                        **{'data-image-path': Path(path).name},
-                        title=str(img_val)
-                    ))
-                else:
-                    thumbs.append(html.Div(str(Path(path).name), style={'fontSize': '12px', 'color': '#999'}))
+                fname = Path(resolve_path(img_val)).name
+                thumbs.append(html.Img(
+                    src=f'/img/{fname}',
+                    style={
+                        'height': f'{thumb_size}px', 'border': '1px solid #ddd',
+                        'borderRadius': '4px', 'backgroundColor': '#fafafa',
+                    },
+                    **{'data-image-path': fname},
+                    title=str(img_val),
+                ))
 
             while len(thumbs) < n_per:
-                thumbs.append(
-                    html.Div(
-                        '样本不足',
-                        style={
-                            'height': f'{thumb_size}px',
-                            'minWidth': '84px',
-                            'display': 'flex',
-                            'alignItems': 'center',
-                            'justifyContent': 'center',
-                            'border': '1px dashed #d0d0d0',
-                            'borderRadius': '4px',
-                            'backgroundColor': '#f8f8f8',
-                            'fontSize': '12px',
-                            'color': '#999'
-                        }
-                    )
-                )
-
-            if len(thumbs) == 0:
-                thumbs.append(html.Div('无可用图片', style={'fontSize': '12px', 'color': '#999'}))
+                thumbs.append(html.Div('样本不足', style={
+                    'height': f'{thumb_size}px', 'minWidth': '84px',
+                    'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center',
+                    'border': '1px dashed #d0d0d0', 'borderRadius': '4px',
+                    'backgroundColor': '#f8f8f8', 'fontSize': '12px', 'color': '#999',
+                }))
 
             cards.append(html.Div([
                 html.Div([
-                    html.Div(f"簇 {c}", style={'fontSize': '13px', 'fontWeight': '600'}),
+                    html.Div(f'簇 {c}', style={'fontSize': '13px', 'fontWeight': '600'}),
                     html.Div([
                         html.Button(
                             '查看',
                             id={'type': 'rep-view-cluster', 'index': str(c)},
                             n_clicks=0,
                             style={
-                                'padding': '4px 10px',
-                                'fontSize': '12px',
-                                'backgroundColor': '#0066cc',
-                                'color': 'white',
-                                'border': 'none',
-                                'borderRadius': '4px',
-                                'cursor': 'pointer'
-                            }
+                                'padding': '4px 10px', 'fontSize': '12px',
+                                'backgroundColor': '#0066cc', 'color': 'white',
+                                'border': 'none', 'borderRadius': '4px', 'cursor': 'pointer',
+                            },
                         ),
                         html.A(
-                            '尝试拼对',
-                            href=assemble_url,
-                            target='_blank',
+                            '尝试拼对', href=assemble_url, target='_blank',
                             style={
-                                'display': 'inline-block',
-                                'padding': '4px 10px',
-                                'fontSize': '12px',
-                                'backgroundColor': '#28a745',
-                                'color': 'white',
-                                'borderRadius': '4px',
-                                'textDecoration': 'none',
-                                'marginLeft': '6px'
-                            }
-                        )
-                    ], style={'display': 'flex', 'alignItems': 'center'})
-                ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'marginBottom': '6px'}),
-                html.Div(thumbs, style={'display': 'flex', 'gap': '6px', 'flexWrap': 'wrap'})
+                                'display': 'inline-block', 'padding': '4px 10px',
+                                'fontSize': '12px', 'backgroundColor': '#28a745',
+                                'color': 'white', 'borderRadius': '4px',
+                                'textDecoration': 'none', 'marginLeft': '6px',
+                            },
+                        ),
+                    ], style={'display': 'flex', 'alignItems': 'center'}),
+                ], style={
+                    'display': 'flex', 'justifyContent': 'space-between',
+                    'alignItems': 'center', 'marginBottom': '6px',
+                }),
+                html.Div(thumbs, style={'display': 'flex', 'gap': '6px', 'flexWrap': 'wrap'}),
             ], style={
-                'padding': '10px',
-                'border': '1px solid #e0e0e0',
-                'borderRadius': '8px',
-                'minWidth': '180px',
-                'backgroundColor': '#fff'
+                'padding': '10px', 'border': '1px solid #e0e0e0',
+                'borderRadius': '8px', 'minWidth': '180px', 'backgroundColor': '#fff',
             }))
 
-            if feature_cols and len(subset_feat) > 0:
-                center_vec = subset_feat[feature_cols].mean().values
-                distances = np.linalg.norm(subset_feat[feature_cols].values - center_vec, axis=1)
-                subset_feat = subset_feat.assign(_dist=distances)
-                outliers = subset_feat.nlargest(outlier_k, '_dist')
-                outlier_cards = []
-                for _, r in outliers.iterrows():
-                    img_val = r.get('image_name') if 'image_name' in r else r.get(image_col)
-                    path = resolve_path(img_val)
-                    cache_key = f"outlier_thumb_{Path(path).name}_{thumb_size}"
-                    b64 = image_cache.get(cache_key) if image_cache else None
-                    if b64 is None:
-                        b64 = img_to_base64(path, max_size=thumb_size)
-                        if image_cache and b64:
-                            image_cache.set(cache_key, b64)
-                    dist_val = r['_dist']
-                    # 距离越大颜色越红
-                    dist_color = '#c0392b' if dist_val > 2 else ('#e67e22' if dist_val > 1 else '#27ae60')
-                    outlier_cards.append(html.Div([
-                        html.Img(
-                            src=b64,
-                            style={'width': '100%', 'height': '80px', 'objectFit': 'cover',
-                                   'borderRadius': '6px 6px 0 0', 'border': '1px solid #e0e0e0'},
-                            **({'data-image-path': Path(path).name} if b64 else {}),
-                            title=str(img_val),
-                        ) if b64 else html.Div(
-                            str(Path(path).name),
-                            style={'height': '80px', 'display': 'flex', 'alignItems': 'center',
-                                   'justifyContent': 'center', 'fontSize': '11px', 'color': '#999',
-                                   'backgroundColor': '#f5f5f5', 'borderRadius': '6px 6px 0 0'}
-                        ),
-                        html.Div([
-                            html.Div(
-                                f"#{r.get('sample_id', '?')}",
-                                style={'fontSize': '11px', 'color': '#555', 'fontWeight': '600',
-                                       'overflow': 'hidden', 'textOverflow': 'ellipsis', 'whiteSpace': 'nowrap'},
-                            ),
-                            html.Span(
-                                f"d={dist_val:.3f}",
-                                style={'fontSize': '11px', 'color': dist_color,
-                                       'fontWeight': '700', 'backgroundColor': '#fafafa',
-                                       'padding': '1px 5px', 'borderRadius': '4px',
-                                       'border': f'1px solid {dist_color}'},
-                            ),
-                        ], style={'padding': '4px 6px', 'display': 'flex',
-                                  'justifyContent': 'space-between', 'alignItems': 'center'}),
-                    ], style={
-                        'width': '100px', 'border': '1px solid #e0e0e0',
-                        'borderRadius': '8px', 'backgroundColor': '#fff',
-                        'boxShadow': '0 1px 3px rgba(0,0,0,0.06)', 'overflow': 'hidden',
-                        'flexShrink': '0',
-                    }))
-                outlier_blocks.append(html.Div([
-                    html.Div(
-                        f"簇 {c}",
-                        style={'fontSize': '12px', 'fontWeight': '700', 'color': '#2c3e50',
-                               'marginBottom': '6px'},
-                    ),
-                    html.Div(outlier_cards, style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '6px'}),
-                ], style={
-                    'padding': '10px 12px', 'border': '1px solid #e4e8ef',
-                    'borderRadius': '8px', 'backgroundColor': '#fff',
-                    'boxShadow': '0 1px 3px rgba(0,0,0,0.04)',
-                }))
-
-        if len(outlier_blocks) == 0:
-            outlier_blocks = html.Div('缺少特征列，无法计算离群样本', style={'color': '#666', 'padding': '4px'})
-        else:
-            outlier_blocks = html.Div(outlier_blocks, style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '12px'})
-
-        page_status = f"第 {page_index}/{total_pages} 页｜簇 {start_idx + 1}-{start_idx + len(active_clusters)} / {len(clusters)}"
-        disable_prev = page_index <= 1
-        disable_next = page_index >= total_pages
-
-        return cards, outlier_blocks, page_index, page_status, disable_prev, disable_next
+        page_status = (
+            f'第 {page_index}/{total_pages} 页｜'
+            f'簇 {start_idx + 1}-{start_idx + len(active_clusters)} / {len(clusters)}'
+        )
+        return cards, page_index, page_status, page_index <= 1, page_index >= total_pages
 
     @app.callback(
         Output('visualization-tabs', 'value', allow_duplicate=True),

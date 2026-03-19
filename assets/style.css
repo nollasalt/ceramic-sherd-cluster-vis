@@ -198,6 +198,115 @@ button {
   transition: opacity 0.2s;
 }
 
+/* ── 侧边栏导航（vertical tabs） ─────────────────────────── */
+
+/* parent_className：外层 flex 容器 */
+.sidebar-nav {
+  display: flex !important;
+  flex-direction: row !important;
+  width: 100%;
+  min-height: calc(100vh - 185px);
+  background: #fff;
+  border: 1px solid #dde4ef;
+  border-radius: 10px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  overflow: hidden;
+}
+
+/* Tab strip：左侧导航栏（Dash 的 .tab-container--vert） */
+.sidebar-nav .tab-container--vert {
+  flex: 0 0 148px !important;
+  width: 148px !important;
+  min-width: 148px !important;
+  background: #f8fafc;
+  border-right: 1px solid #e4e8ef;
+  padding: 6px 0 !important;
+  overflow-y: auto;
+  flex-direction: column !important;
+}
+
+/* 内容区域（Dash 的 .tab-content--vert） */
+.sidebar-nav .tab-content--vert {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow-y: auto;
+  padding: 0 !important;
+}
+
+/* 侧边栏中每个标签页按钮 — 覆盖水平样式 */
+.sidebar-nav .tab {
+  display: block !important;
+  width: 100% !important;
+  text-align: left !important;
+  padding: 8px 12px 8px 16px !important;
+  border-radius: 0 !important;
+  border: none !important;
+  border-top: none !important;
+  border-right: none !important;
+  border-bottom: none !important;
+  border-left: 3px solid transparent !important;
+  background: transparent !important;
+  font-size: 13px !important;
+  color: #555 !important;
+  white-space: nowrap !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.12s, color 0.12s !important;
+}
+
+.sidebar-nav .tab:hover {
+  background: #eef4fb !important;
+  color: #2c6fad !important;
+  border-left-color: #a0c0e0 !important;
+}
+
+.sidebar-nav .tab--selected {
+  color: #2c6fad !important;
+  font-weight: 700 !important;
+  background: #e8f0fa !important;
+  border-top: none !important;
+  border-right: none !important;
+  border-bottom: none !important;
+  border-left: 3px solid #2c6fad !important;
+}
+
+/* 分组标题：不可点击的区块标题 */
+.sidebar-nav .nav-group-label {
+  pointer-events: none !important;
+  cursor: default !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  color: #b0b8c8 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.09em !important;
+  padding: 14px 12px 4px !important;
+  background: transparent !important;
+  border: none !important;
+  border-top: none !important;
+  border-right: none !important;
+  border-bottom: none !important;
+  border-left: 3px solid transparent !important;
+}
+
+.sidebar-nav .nav-group-label:hover {
+  background: transparent !important;
+  color: #b0b8c8 !important;
+  border-left-color: transparent !important;
+}
+
+/* 覆盖全局 .tab:first-child 的绿色（第一项是分组标题） */
+.sidebar-nav .tab:first-child {
+  color: #b0b8c8 !important;
+  background: transparent !important;
+}
+.sidebar-nav .tab:first-child:hover {
+  background: transparent !important;
+  color: #b0b8c8 !important;
+  border-left-color: transparent !important;
+}
+
 /* ── 通用工具类 ──────────────────────────────────────────── */
 .flex-row  { display: flex; align-items: center; gap: 8px; }
 .flex-col  { display: flex; flex-direction: column; gap: 6px; }

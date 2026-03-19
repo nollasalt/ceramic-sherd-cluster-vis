@@ -4,7 +4,7 @@ from dash import dcc, html
 
 
 def build_representatives_tab():
-    """构建代表样本与离群样本展示标签页。"""
+    """构建代表样本展示标签页。"""
     return dcc.Tab(
         label='代表样本',
         value='representatives',
@@ -32,18 +32,6 @@ def build_representatives_tab():
                         ],
                         value='center',
                         labelStyle={'marginRight': '12px'},
-                    ),
-                ], style={'marginBottom': '8px'}),
-                html.Div([
-                    html.Label('每簇离群样本数'),
-                    dcc.Slider(
-                        id='outlier-count',
-                        min=1,
-                        max=5,
-                        step=1,
-                        value=2,
-                        marks={1: '1', 2: '2', 3: '3', 4: '4', 5: '5'},
-                        tooltip={'placement': 'bottom', 'always_visible': False},
                     ),
                 ], style={'marginBottom': '8px'}),
                 dcc.Loading(
@@ -81,22 +69,6 @@ def build_representatives_tab():
                         }
                     ),
                 ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'marginTop': '8px'}),
-                html.Div([
-                    html.Span('离群样本', style={
-                        'fontSize': '13px', 'fontWeight': '700', 'color': '#2c3e50',
-                    }),
-                    html.Span('每簇中距离中心最远的样本，可能是边界片或混聚样本', style={
-                        'fontSize': '11px', 'color': '#888', 'marginLeft': '8px',
-                    }),
-                ], style={'marginTop': '16px', 'marginBottom': '6px', 'display': 'flex', 'alignItems': 'baseline'}),
-                html.Div(id='outlier-list', style={
-                    'marginTop': '16px',
-                    'padding': '12px 14px',
-                    'border': '1px solid #e4e8ef',
-                    'borderRadius': '10px',
-                    'backgroundColor': '#f8fafc',
-                    'boxShadow': '0 1px 3px rgba(0,0,0,0.04)',
-                }),
             ], style={'marginTop': '12px', 'padding': '0 8px'}),
         ],
     )

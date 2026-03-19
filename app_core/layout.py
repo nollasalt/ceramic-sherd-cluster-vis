@@ -14,6 +14,12 @@ from app_core.tabs.representatives import build_representatives_tab
 from app_core.tabs.help import build_help_tab
 from app_core.tabs.stratigraphy import build_stratigraphy_tab
 from app_core.tabs.cooccurrence import build_cooccurrence_tab
+from app_core.tabs.borderline import build_borderline_tab
+
+
+def _group_tab(value, label):
+    """创建不可点击的侧边栏分组标题（通过 CSS pointer-events: none 禁用）。"""
+    return dcc.Tab(label=label, value=value, className='nav-group-label', children=[])
 
 
 def build_layout(
@@ -115,10 +121,14 @@ def build_layout(
         dcc.Tabs(
             id='visualization-tabs',
             value='representatives',
-            colors={'border': '#ccd9ea', 'primary': '#2c6fad', 'background': '#eef1f6'},
+            vertical=True,
+            parent_className='sidebar-nav',
             children=[
+                # ── 总览 ──────────────────────────────────────
+                _group_tab('group-overview', '总览'),
                 build_help_tab(),
                 build_representatives_tab(),
+                build_borderline_tab(),
                 build_scatter_tab(
                     fig=fig,
                     clusters=clusters,
@@ -127,12 +137,18 @@ def build_layout(
                     init_type_options=init_type_options,
                     algorithm_options=algorithm_options,
                 ),
-                build_heatmap_tab(),
-                build_similarity_tab(),
+                # ── 质量评估 ───────────────────────────────────
+                _group_tab('group-quality', '质量评估'),
                 build_cluster_size_tab(),
                 build_cluster_quality_tab(),
+                build_heatmap_tab(),
+                build_similarity_tab(),
+                # ── 构成分析 ───────────────────────────────────
+                _group_tab('group-analysis', '构成分析'),
                 build_category_breakdown_tab(),
                 build_cluster_analysis_tab(),
+                # ── 地层分析 ───────────────────────────────────
+                _group_tab('group-stratigraphy', '地层分析'),
                 build_stratigraphy_tab(),
                 build_cooccurrence_tab(),
             ],

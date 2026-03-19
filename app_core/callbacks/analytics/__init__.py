@@ -11,9 +11,11 @@ from .cluster_analysis import register_cluster_analysis_callbacks
 from .representatives import register_representatives_callbacks
 from .heatmap import register_heatmap_callbacks
 from .similarity import register_similarity_callbacks
-from .image_loader import register_image_loader_callbacks
+from .image_loader import register_image_loader_callbacks, register_image_server
 from .stratigraphy import register_stratigraphy_callbacks
 from .cooccurrence import register_cooccurrence_callbacks
+from .type_validation import register_type_validation_callbacks
+from .borderline import register_borderline_callbacks
 
 
 def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
@@ -36,7 +38,10 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
     register_representatives_callbacks(app, image_root=image_root)
     register_heatmap_callbacks(app)
     register_similarity_callbacks(app)
+    register_image_server(app, search_dirs=search_dirs)
     register_image_loader_callbacks(app, search_dirs=search_dirs)
     register_stratigraphy_callbacks(app)
     register_cooccurrence_callbacks(app)
+    register_type_validation_callbacks(app)
+    register_borderline_callbacks(app, image_root=image_root)
     return app
