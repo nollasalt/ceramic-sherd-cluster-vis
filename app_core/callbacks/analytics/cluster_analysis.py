@@ -220,6 +220,10 @@ def register_cluster_analysis_callbacks(app):
                 labels = work[cluster_col].values
                 if len(np.unique(labels)) >= 2 and len(X) >= 3:
                     from sklearn.metrics import silhouette_samples
+                    from sklearn.decomposition import PCA as _PCA
+                    if X.shape[1] > 50:
+                        n_comp = min(50, X.shape[0] - 1, X.shape[1])
+                        X = _PCA(n_components=n_comp, random_state=42).fit_transform(X)
                     max_samples = 4000
                     if len(X) > max_samples:
                         idx = np.random.default_rng(42).choice(len(X), size=max_samples, replace=False)

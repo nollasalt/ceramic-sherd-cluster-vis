@@ -41,6 +41,7 @@ BASE_DIR = Path(__file__).parent
 DATA_CSV = BASE_DIR / 'sherd_cluster_table_clustered_only.csv'
 FEATURES_CSV = BASE_DIR / 'all_features_dinov3.csv'
 IMAGE_ROOT = BASE_DIR / 'all_cutouts'
+UMAP_CACHE = BASE_DIR / 'umap_cache.npz'  # 缓存 UMAP 坐标，避免每次启动重算
 DEFAULT_CLUSTER_MODE = 'merged'  # 默认聚类模式，正反面融合
 IMAGE_SEARCH_DIRS = list(dict.fromkeys([
     IMAGE_ROOT,
@@ -111,18 +112,55 @@ def find_image_path(image_path: str) -> Path | None:
 
 
 def build_initial_figure(df: pd.DataFrame, feature_cols, cluster_col, hover_cols, custom_data):
-    """构建首页默认二维降维散点图（UMAP）。"""
-    df_embed, reduction_key = ensure_dimensionality_reduction(
-        df.copy(),
-        feature_cols,
-        algorithm='umap',
-        n_components=2,
-        perplexity=None,
-        n_neighbors=15,
-        min_dist=0.1,
-    )
+    """构建首页默认二维降维散点图（UMAP），结果缓存到磁盘。"""
+    import time
+    import numpy as np
 
-    part_symbol_col, part_symbol_map = get_part_symbol_settings(df_embed)
+    # ── 尝试读取磁盘缓存 ──────────────────────────────────────────────────────
+    reduction_key = 'umap_2_nn15_md10'
+    umap_cols = [f'{reduction_key}_0', f'{reduction_key}_1']
+    cache_valid = False
+
+    if UMAP_CACHE.exists():
+        try:
+            cache = np.load(UMAP_CACHE, allow_pickle=True)
+            cached_ids = cache['sample_id'].astype(str)
+            cur_ids = df['sample_id'].astype(str).reset_index(drop=True).values
+            if len(cached_ids) == len(cur_ids) and (cached_ids == cur_ids).all():
+                df = df.reset_index(drop=True)
+                df[umap_cols[0]] = cache['x']
+                df[umap_cols[1]] = cache['y']
+                cache_valid = True
+                print("✓ UMAP 缓存命中，跳过重新计算")
+        except Exception as e:
+            print(f"UMAP 缓存读取失败，将重新计算: {e}")
+
+    if not cache_valid:
+        t0 = time.time()
+        print("计算 UMAP（首次或缓存失效）...")
+        df, reduction_key = ensure_dimensionality_reduction(
+            df.copy(),
+            feature_cols,
+            algorithm='umap',
+            n_components=2,
+            perplexity=None,
+            n_neighbors=15,
+            min_dist=0.1,
+        )
+        print(f"UMAP 完成，耗时 {time.time() - t0:.1f}s")
+        # 保存缓存
+        try:
+            np.savez_compressed(
+                UMAP_CACHE,
+                sample_id=df['sample_id'].astype(str).values,
+                x=df[umap_cols[0]].values,
+                y=df[umap_cols[1]].values,
+            )
+            print(f"✓ UMAP 坐标已缓存到 {UMAP_CACHE.name}")
+        except Exception as e:
+            print(f"UMAP 缓存写入失败: {e}")
+
+    part_symbol_col, part_symbol_map = get_part_symbol_settings(df)
     symbol_kwargs = {}
     if part_symbol_col:
         symbol_kwargs = {
@@ -132,10 +170,10 @@ def build_initial_figure(df: pd.DataFrame, feature_cols, cluster_col, hover_cols
         }
 
     fig = px.scatter(
-        df_embed,
+        df,
         x=f'{reduction_key}_0',
         y=f'{reduction_key}_1',
-        color=df_embed[cluster_col].astype(str),
+        color=df[cluster_col].astype(str),
         hover_data=hover_cols,
         custom_data=custom_data,
         color_discrete_sequence=CLUSTER_COLORS,

@@ -74,9 +74,16 @@ def _compute_borderline_scores(work: pd.DataFrame, cluster_col: str, feature_col
         return work
 
     center_ids = list(centers.keys())
-    C = np.array([centers[c] for c in center_ids])  # (K, F)
+    C = np.array([centers[c] for c in center_ids], dtype=np.float32)  # (K, F)
+    X = work[feature_cols].values.astype(np.float32)  # (N, F)
 
-    X = work[feature_cols].values  # (N, F)
+    # 高维时先 PCA 降维，减少矩阵乘法开销（128→50 维约快 60%）
+    if X.shape[1] > 50:
+        from sklearn.decomposition import PCA as _PCA
+        n_comp = min(50, X.shape[0] - 1, X.shape[1])
+        _pca = _PCA(n_components=n_comp, random_state=42)
+        X = _pca.fit_transform(X).astype(np.float32)
+        C = _pca.transform(C).astype(np.float32)
 
     # 高效计算 (N, K) 距离矩阵：||x - c||^2 = ||x||^2 - 2 x·cᵀ + ||c||^2
     X_sq = np.sum(X ** 2, axis=1, keepdims=True)   # (N, 1)
@@ -87,25 +94,26 @@ def _compute_borderline_scores(work: pd.DataFrame, cluster_col: str, feature_col
     c_to_idx = {c: i for i, c in enumerate(center_ids)}
     own_labels = work[cluster_col].values
 
-    d_self = np.array([
-        dists[i, c_to_idx[own_labels[i]]]
-        if own_labels[i] in c_to_idx else np.nan
-        for i in range(len(work))
-    ])
+    # 向量化：将每行的"自簇"列设为 inf，再 argmin
+    own_idx_arr = np.array([c_to_idx.get(lbl, -1) for lbl in own_labels])  # (N,)
+    valid_mask = own_idx_arr >= 0
 
-    # 最近其他簇：mask out own column, then argmin
-    d_nearest_other = np.full(len(work), np.nan)
-    nearest_other = np.full(len(work), None, dtype=object)
-    for i in range(len(work)):
-        own = own_labels[i]
-        if own not in c_to_idx:
-            continue
-        own_idx = c_to_idx[own]
-        row = dists[i].copy()
-        row[own_idx] = np.inf
-        best_idx = int(np.argmin(row))
-        d_nearest_other[i] = dists[i, best_idx]
-        nearest_other[i] = center_ids[best_idx]
+    # d_self（向量化取对角）
+    safe_own = np.where(own_idx_arr >= 0, own_idx_arr, 0)
+    d_self = dists[np.arange(len(work)), safe_own].astype(float)
+    d_self[~valid_mask] = np.nan
+
+    # 屏蔽自簇列后 argmin
+    dists_other = dists.copy()
+    dists_other[np.arange(len(work))[valid_mask], own_idx_arr[valid_mask]] = np.inf
+    best_idx = np.argmin(dists_other, axis=1)  # (N,)
+
+    d_nearest_other = dists_other[np.arange(len(work)), best_idx].astype(float)
+    d_nearest_other[~valid_mask] = np.nan
+    d_nearest_other[d_nearest_other == np.inf] = np.nan
+
+    nearest_other = np.array([center_ids[i] for i in best_idx], dtype=object)
+    nearest_other[~valid_mask] = None
 
     bscore = d_self / (d_nearest_other + 1e-8)
 
@@ -336,14 +344,15 @@ def register_borderline_callbacks(app, *, image_root):
         valid = scored.dropna(subset=['_bscore', '_nearest_other'])
         valid = valid[valid['_bscore'] >= threshold]
 
-        pair_counts: dict = {}
-        for _, row in valid.iterrows():
-            a = row[cluster_col]
-            b = row['_nearest_other']
-            if a == b or b is None:
-                continue
-            key = (min(a, b), max(a, b))
-            pair_counts[key] = pair_counts.get(key, 0) + 1
+        _a = valid[cluster_col].values
+        _b = valid['_nearest_other'].values
+        _not_same = _a != _b
+        _a, _b = _a[_not_same], _b[_not_same]
+        if len(_a) == 0:
+            pair_counts = {}
+        else:
+            _pair_df = pd.DataFrame({'ca': np.minimum(_a, _b), 'cb': np.maximum(_a, _b)})
+            pair_counts = dict(_pair_df.groupby(['ca', 'cb']).size())
 
         if not pair_counts:
             pair_stats_div = html.Div(

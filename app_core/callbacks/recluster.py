@@ -4,7 +4,6 @@ Reclustering callback extracted from the main app module.
 """
 
 import json
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -91,47 +90,21 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
             algo_name = clustering_result.get('algorithm', cluster_algorithm)
 
             output_dir = Path(__file__).parent.parent.parent / 'all_kmeans_new'
-
-            if output_dir.exists():
-                shutil.rmtree(output_dir)
             output_dir.mkdir(exist_ok=True)
+
+            piece_to_cluster = {str(pid): int(label) for pid, label in zip(piece_ids, labels)}
 
             metadata = {
                 'n_clusters': int(clustering_result['n_clusters']),
                 'cluster_centers': cluster_centers.tolist(),
                 'silhouette_score': float(silhouette_avg),
                 'cluster_mode': cluster_mode,
-                'algorithm': algo_name
+                'algorithm': algo_name,
+                'piece_to_cluster': piece_to_cluster,
             }
 
             with open(output_dir / 'cluster_metadata.json', 'w', encoding='utf-8') as f:
                 json.dump(metadata, f, indent=2, ensure_ascii=False)
-
-            piece_to_cluster = {pid: int(label) for pid, label in zip(piece_ids, labels)}
-
-            image_root_abs = Path(image_root)
-            if not image_root_abs.is_absolute():
-                image_root_abs = Path(__file__).parent.parent.parent / image_root_abs
-            cluster_file_map = {}
-
-            for _, row in selected_df.iterrows():
-                main_id = row['main_id']
-                filename = row['filename']
-
-                if main_id not in piece_to_cluster:
-                    continue
-
-                cluster_id = piece_to_cluster[main_id]
-                cluster_dir = output_dir / f'cluster_{cluster_id}'
-                cluster_dir.mkdir(exist_ok=True)
-
-                src_path = image_root_abs / filename
-                if src_path.exists():
-                    dst_path = cluster_dir / filename
-                    shutil.copy2(src_path, dst_path)
-                    cluster_file_map[filename] = cluster_id
-
-            print(f"已复制 {len(cluster_file_map)} 个图片文件到聚类目录")
 
             result = subprocess.run(
                 ['python', str(Path(__file__).parent.parent.parent / 'build_table.py')],
@@ -145,6 +118,10 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                 raise RuntimeError(f"重新生成表格失败: {result.stderr}")
 
             print(f"build_table.py 执行成功: {result.stdout}")
+
+            # 删除 UMAP 缓存，下次启动时重新计算新聚类的散点图
+            umap_cache = Path(__file__).parent.parent.parent / 'umap_cache.npz'
+            umap_cache.unlink(missing_ok=True)
 
             mode_names = {'merged': '融合', 'exterior': '仅外部', 'interior': '仅内部'}
             mode_display = mode_names.get(cluster_mode, cluster_mode)

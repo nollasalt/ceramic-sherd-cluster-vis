@@ -54,6 +54,12 @@ def register_cluster_quality_callbacks(app):
         X = dff[feature_cols].values
         labels = dff[cluster_col].values
 
+        # 高维特征空间中距离度量失效（维度诅咒），先降到 50 维再计算指标
+        if X.shape[1] > 50:
+            from sklearn.decomposition import PCA
+            n_comp = min(50, X.shape[0] - 1, X.shape[1])
+            X = PCA(n_components=n_comp, random_state=42).fit_transform(X)
+
         if len(np.unique(labels)) < 2:
             empty = html.Div('簇数不足 2，无法计算指标', style={'color': '#666', 'padding': '8px'})
             return empty, dash.no_update, dash.no_update
