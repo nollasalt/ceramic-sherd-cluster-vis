@@ -14,6 +14,28 @@ def register_compare_callbacks(app):
     """注册手动对比面板相关回调。"""
 
     @app.callback(
+        Output('compare-section', 'style'),
+        Input('visualization-tabs', 'value'),
+    )
+    def toggle_compare_section(tab_value):
+        """仅在散点图标签页时显示比较视图。"""
+        base = {'borderTop': '1px solid #eee', 'paddingTop': '8px', 'marginTop': '8px'}
+        if tab_value == 'scatter':
+            return base
+        return {**base, 'display': 'none'}
+
+    @app.callback(
+        Output('sample-panel', 'style'),
+        Input('visualization-tabs', 'value'),
+    )
+    def toggle_sample_panel(tab_value):
+        """仅在散点图标签页时显示样本面板。"""
+        base = {'marginTop': '12px', 'minHeight': '220px', 'borderTop': '1px solid #ddd', 'paddingTop': '8px'}
+        if tab_value == 'scatter':
+            return base
+        return {**base, 'display': 'none'}
+
+    @app.callback(
         Output('compare-selected-store', 'data'),
         Input('compare-add', 'n_clicks'),
         Input('compare-clear', 'n_clicks'),

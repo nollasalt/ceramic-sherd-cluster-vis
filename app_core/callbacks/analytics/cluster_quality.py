@@ -187,29 +187,60 @@ def register_cluster_quality_callbacks(app):
             """格式化数值，缺失值显示为 '-'。"""
             return '-' if pd.isna(v) else f"{v:.{digits}f}"
 
+        _TH = {
+            'padding': '8px 12px', 'backgroundColor': '#2c3e50', 'color': '#fff',
+            'fontSize': '12px', 'fontWeight': '600', 'textAlign': 'left',
+            'whiteSpace': 'nowrap', 'letterSpacing': '0.03em',
+        }
+        _TD = {
+            'padding': '7px 12px', 'fontSize': '12px', 'color': '#333',
+            'borderBottom': '1px solid #f0f0f0', 'verticalAlign': 'middle',
+        }
+
+        def _sil_badge(v):
+            if pd.isna(v): return html.Span('-', style={'color': '#aaa'})
+            color = '#27ae60' if v >= 0.3 else ('#e67e22' if v >= 0 else '#e74c3c')
+            return html.Span(f"{v:.3f}", style={
+                'color': color, 'fontWeight': '700',
+                'backgroundColor': color + '18',
+                'padding': '2px 7px', 'borderRadius': '10px',
+                'border': f'1px solid {color}44',
+            })
+
         table_rows = []
-        header = html.Tr([
-            html.Th('簇'), html.Th('规模'), html.Th('簇内均距'), html.Th('最近簇距'), html.Th('轮廓系数'), html.Th('松散度比')
-        ])
-        for _, row in detail_df.sort_values('looseness', ascending=False).iterrows():
+        for i, (_, row) in enumerate(detail_df.sort_values('looseness', ascending=False).iterrows()):
             color = row['status_color'] if pd.notna(row['status_color']) else '#cccccc'
+            row_bg = '#fafbfc' if i % 2 == 0 else '#fff'
+            dot = html.Span('●', style={'color': color, 'marginRight': '6px', 'fontSize': '14px'})
             table_rows.append(html.Tr([
-                html.Td(str(row['cluster'])),
-                html.Td(str(int(row['size']))),
-                html.Td(fmt_val(row['intra_mean'])),
-                html.Td(fmt_val(row['inter_min'])),
-                html.Td(fmt_val(row['silhouette'])),
-                html.Td(fmt_val(row['looseness']))
-            ], style={'backgroundColor': '#fdfdfd', 'borderLeft': f'6px solid {color}'}))
+                html.Td([dot, html.Span(str(row['cluster']))], style={**_TD, 'fontWeight': '600'}),
+                html.Td(str(int(row['size'])), style=_TD),
+                html.Td(fmt_val(row['intra_mean']), style=_TD),
+                html.Td(fmt_val(row['inter_min']), style=_TD),
+                html.Td(_sil_badge(row['silhouette']), style=_TD),
+                html.Td(fmt_val(row['looseness']), style=_TD),
+            ], style={'backgroundColor': row_bg}))
 
-        detail_table = html.Table([
-            html.Thead(header),
-            html.Tbody(table_rows)
-        ], style={'borderCollapse': 'collapse', 'width': '100%', 'marginTop': '6px'})
+        detail_table = html.Div([
+            html.Table([
+                html.Thead(html.Tr([
+                    html.Th(t, style=_TH)
+                    for t in ['簇', '规模', '簇内均距', '最近簇距', '轮廓系数', '松散度比']
+                ])),
+                html.Tbody(table_rows),
+            ], style={'borderCollapse': 'collapse', 'width': '100%'}),
+        ], style={
+            'overflowX': 'auto', 'border': '1px solid #e4e8ef',
+            'borderRadius': '10px', 'boxShadow': '0 1px 4px rgba(0,0,0,0.05)',
+            'marginTop': '10px', 'overflow': 'hidden',
+        })
 
-        detail_hint = html.Div(
-            '颜色含义：绿=簇紧凑且与邻簇分开；黄=轻微分散或稍粘连；红=分散或与邻簇混杂。松散度比 = 簇内平均距离 / 最近簇中心距离，越低越清晰。',
-            style={'color': '#666', 'marginTop': '4px'}
-        )
+        detail_hint = html.Div([
+            html.Span('颜色说明：', style={'fontWeight': '600', 'color': '#444'}),
+            html.Span('● ', style={'color': '#4caf50'}), html.Span('清晰  ', style={'color': '#555'}),
+            html.Span('● ', style={'color': '#ffb300'}), html.Span('需关注  ', style={'color': '#555'}),
+            html.Span('● ', style={'color': '#e53935'}), html.Span('混杂  ', style={'color': '#555'}),
+            html.Span('｜ 松散度 = 簇内均距 ÷ 最近簇距，越低越清晰', style={'color': '#888', 'fontSize': '11px'}),
+        ], style={'marginTop': '8px', 'fontSize': '12px', 'padding': '0 2px'})
 
         return [summary] + cards, bar_fig, html.Div([detail_hint, detail_table])

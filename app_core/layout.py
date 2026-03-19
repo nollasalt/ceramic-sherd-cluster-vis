@@ -37,58 +37,85 @@ def build_layout(
     """
     return html.Div([
         dcc.Location(id='url', refresh=True),
-        html.Div([
-            html.H3('陶片聚类交互可视化 v1.2', style={'display': 'inline-block', 'marginRight': '20px'}),
-            html.Div()
-        ]),
+
+        # ── 页面标题 ───────────────────────────────────────────────────────────
         html.Div([
             html.Div([
-                html.Label('聚类数量 (K):'),
-                dcc.Input(id='n-clusters-input', type='number', value=20, min=2, step=1,
-                          style={'width': '80px', 'marginLeft': '10px', 'marginRight': '20px'}),
-            ], style={'display': 'inline-block', 'marginRight': '20px'}),
+                html.Span('🏺', style={'fontSize': '22px', 'marginRight': '8px'}),
+                html.Span('陶片聚类交互可视化', style={
+                    'fontSize': '18px', 'fontWeight': '700', 'color': '#1a1a2e', 'verticalAlign': 'middle',
+                }),
+                html.Span('v1.2', style={
+                    'fontSize': '11px', 'color': '#aaa', 'marginLeft': '8px',
+                    'verticalAlign': 'middle', 'fontWeight': '400',
+                }),
+            ], style={'display': 'flex', 'alignItems': 'center'}),
+        ], style={'padding': '10px 4px 6px 4px'}),
+
+        # ── 顶部控制栏 ─────────────────────────────────────────────────────────
+        html.Div([
+            # 组 1：聚类数量
             html.Div([
-                html.Label('聚类算法:'),
+                html.Span('聚类数量 K', className='control-label-inline'),
+                dcc.Input(
+                    id='n-clusters-input', type='number', value=20, min=2, step=1,
+                    style={
+                        'width': '68px', 'padding': '5px 8px',
+                        'border': '1px solid #d0d8e8', 'borderRadius': '6px',
+                        'fontSize': '13px', 'color': '#222',
+                    },
+                ),
+            ], className='top-control-group'),
+
+            # 组 2：聚类算法
+            html.Div([
+                html.Span('算法', className='control-label-inline'),
                 dcc.Dropdown(
                     id='cluster-algorithm-selector',
                     options=[
                         {'label': 'K-Means', 'value': 'kmeans'},
                         {'label': '层次聚类 (Ward)', 'value': 'agglomerative-ward'},
                         {'label': '谱聚类 (Spectral)', 'value': 'spectral-kmeans'},
-                        {'label': 'Leiden (Mutual kNN)', 'value': 'leiden'}
+                        {'label': 'Leiden (kNN)', 'value': 'leiden'},
                     ],
                     value='kmeans',
                     clearable=False,
-                    style={'width': '180px', 'marginLeft': '10px'}
+                    style={'width': '170px'},
                 ),
-            ], style={'display': 'inline-block', 'marginRight': '20px', 'verticalAlign': 'middle'}),
+            ], className='top-control-group'),
+
+            # 组 3：聚类模式
             html.Div([
-                html.Label('聚类模式:'),
+                html.Span('模式', className='control-label-inline'),
                 dcc.Dropdown(
                     id='cluster-mode-selector',
                     options=[
                         {'label': '融合 (正反面)', 'value': 'merged'},
                         {'label': '仅外部 (exterior)', 'value': 'exterior'},
-                        {'label': '仅内部 (interior)', 'value': 'interior'}
+                        {'label': '仅内部 (interior)', 'value': 'interior'},
                     ],
                     value=initial_cluster_mode,
                     clearable=False,
-                    style={'width': '150px', 'marginLeft': '10px'}
+                    style={'width': '148px'},
                 ),
-            ], style={'display': 'inline-block', 'marginRight': '20px', 'verticalAlign': 'middle'}),
-            html.Button('重新聚类', id='recluster-button', n_clicks=0,
-                       style={'backgroundColor': '#007bff', 'color': 'white', 'border': 'none',
-                              'padding': '8px 16px', 'cursor': 'pointer', 'borderRadius': '4px'}),
-            dcc.Loading(
-                id='recluster-loading',
-                type='circle',
-                children=[html.Span(id='recluster-status', style={'marginLeft': '15px', 'color': '#666'})],
-                style={'display': 'inline-block', 'marginLeft': '15px'}
-            ),
-        ], style={'padding': '10px', 'backgroundColor': '#f5f5f5', 'borderRadius': '4px', 'marginBottom': '10px'}),
+            ], className='top-control-group'),
+
+            # 组 4：执行按钮 + 状态
+            html.Div([
+                html.Button('重新聚类', id='recluster-button', n_clicks=0, className='btn-primary'),
+                dcc.Loading(
+                    id='recluster-loading',
+                    type='circle',
+                    children=[html.Span(id='recluster-status', style={'fontSize': '12px', 'color': '#666'})],
+                    style={'display': 'inline-flex', 'alignItems': 'center'},
+                ),
+            ], style={'display': 'flex', 'alignItems': 'center', 'gap': '10px', 'paddingLeft': '4px'}),
+        ], className='top-control-bar'),
+
         dcc.Tabs(
             id='visualization-tabs',
             value='representatives',
+            colors={'border': '#ccd9ea', 'primary': '#2c6fad', 'background': '#eef1f6'},
             children=[
                 build_help_tab(),
                 build_representatives_tab(),

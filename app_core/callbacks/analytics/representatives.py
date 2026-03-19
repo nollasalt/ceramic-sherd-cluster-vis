@@ -233,7 +233,7 @@ def register_representatives_callbacks(app, *, image_root):
                 distances = np.linalg.norm(subset_feat[feature_cols].values - center_vec, axis=1)
                 subset_feat = subset_feat.assign(_dist=distances)
                 outliers = subset_feat.nlargest(outlier_k, '_dist')
-                items = []
+                outlier_cards = []
                 for _, r in outliers.iterrows():
                     img_val = r.get('image_name') if 'image_name' in r else r.get(image_col)
                     path = resolve_path(img_val)
@@ -243,19 +243,60 @@ def register_representatives_callbacks(app, *, image_root):
                         b64 = img_to_base64(path, max_size=thumb_size)
                         if image_cache and b64:
                             image_cache.set(cache_key, b64)
-                    label_text = f"样本 {r.get('sample_id', img_val)}｜距离 {r['_dist']:.3f}"
-                    thumb = html.Img(src=b64, style={'height': '60px', 'border': '1px solid #ddd', 'borderRadius': '4px', 'marginRight': '6px'}) if b64 else None
-                    items.append(html.Li([
-                        thumb if thumb else html.Span(str(Path(path).name), style={'marginRight': '6px'}),
-                        html.Span(label_text)
-                    ], style={'display': 'flex', 'alignItems': 'center', 'gap': '6px', 'marginBottom': '4px'}))
+                    dist_val = r['_dist']
+                    # 距离越大颜色越红
+                    dist_color = '#c0392b' if dist_val > 2 else ('#e67e22' if dist_val > 1 else '#27ae60')
+                    outlier_cards.append(html.Div([
+                        html.Img(
+                            src=b64,
+                            style={'width': '100%', 'height': '80px', 'objectFit': 'cover',
+                                   'borderRadius': '6px 6px 0 0', 'border': '1px solid #e0e0e0'},
+                            **({'data-image-path': Path(path).name} if b64 else {}),
+                            title=str(img_val),
+                        ) if b64 else html.Div(
+                            str(Path(path).name),
+                            style={'height': '80px', 'display': 'flex', 'alignItems': 'center',
+                                   'justifyContent': 'center', 'fontSize': '11px', 'color': '#999',
+                                   'backgroundColor': '#f5f5f5', 'borderRadius': '6px 6px 0 0'}
+                        ),
+                        html.Div([
+                            html.Div(
+                                f"#{r.get('sample_id', '?')}",
+                                style={'fontSize': '11px', 'color': '#555', 'fontWeight': '600',
+                                       'overflow': 'hidden', 'textOverflow': 'ellipsis', 'whiteSpace': 'nowrap'},
+                            ),
+                            html.Span(
+                                f"d={dist_val:.3f}",
+                                style={'fontSize': '11px', 'color': dist_color,
+                                       'fontWeight': '700', 'backgroundColor': '#fafafa',
+                                       'padding': '1px 5px', 'borderRadius': '4px',
+                                       'border': f'1px solid {dist_color}'},
+                            ),
+                        ], style={'padding': '4px 6px', 'display': 'flex',
+                                  'justifyContent': 'space-between', 'alignItems': 'center'}),
+                    ], style={
+                        'width': '100px', 'border': '1px solid #e0e0e0',
+                        'borderRadius': '8px', 'backgroundColor': '#fff',
+                        'boxShadow': '0 1px 3px rgba(0,0,0,0.06)', 'overflow': 'hidden',
+                        'flexShrink': '0',
+                    }))
                 outlier_blocks.append(html.Div([
-                    html.Div(f"簇 {c} 离群样本", style={'fontSize': '13px', 'fontWeight': '600', 'marginBottom': '4px'}),
-                    html.Ul(items, style={'paddingLeft': '16px', 'marginTop': '0', 'marginBottom': '8px'})
-                ], style={'marginBottom': '8px'}))
+                    html.Div(
+                        f"簇 {c}",
+                        style={'fontSize': '12px', 'fontWeight': '700', 'color': '#2c3e50',
+                               'marginBottom': '6px'},
+                    ),
+                    html.Div(outlier_cards, style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '6px'}),
+                ], style={
+                    'padding': '10px 12px', 'border': '1px solid #e4e8ef',
+                    'borderRadius': '8px', 'backgroundColor': '#fff',
+                    'boxShadow': '0 1px 3px rgba(0,0,0,0.04)',
+                }))
 
         if len(outlier_blocks) == 0:
             outlier_blocks = html.Div('缺少特征列，无法计算离群样本', style={'color': '#666', 'padding': '4px'})
+        else:
+            outlier_blocks = html.Div(outlier_blocks, style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '12px'})
 
         page_status = f"第 {page_index}/{total_pages} 页｜簇 {start_idx + 1}-{start_idx + len(active_clusters)} / {len(clusters)}"
         disable_prev = page_index <= 1

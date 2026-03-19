@@ -50,7 +50,21 @@ def build_similarity_tab():
                     type='default',
                     children=dcc.Graph(id='similarity-graph', style={'height': 'calc(100vh - 240px)', 'width': '100%'}),
                 ),
-                html.Div(id='nearest-cluster-list', style={'marginTop': '8px', 'fontSize': '13px', 'color': '#333'}),
+                html.Div([
+                    html.Span('最近邻簇', style={
+                        'fontSize': '13px', 'fontWeight': '700', 'color': '#2c3e50',
+                    }),
+                    html.Span('每个簇与其最相似的 K 个簇，绿色表示高度相似', style={
+                        'fontSize': '11px', 'color': '#888', 'marginLeft': '8px',
+                    }),
+                ], style={'marginTop': '10px', 'marginBottom': '6px', 'display': 'flex', 'alignItems': 'baseline'}),
+                html.Div(id='nearest-cluster-list', style={
+                    'padding': '10px 12px',
+                    'border': '1px solid #e4e8ef',
+                    'borderRadius': '10px',
+                    'backgroundColor': '#f8fafc',
+                    'boxShadow': '0 1px 3px rgba(0,0,0,0.04)',
+                }),
             ], style={'marginTop': '12px'}),
         ],
     )

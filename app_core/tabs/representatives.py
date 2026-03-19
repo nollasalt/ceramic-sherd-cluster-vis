@@ -81,7 +81,22 @@ def build_representatives_tab():
                         }
                     ),
                 ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'marginTop': '8px'}),
-                html.Div(id='outlier-list', style={'marginTop': '12px', 'fontSize': '13px', 'color': '#333'}),
+                html.Div([
+                    html.Span('离群样本', style={
+                        'fontSize': '13px', 'fontWeight': '700', 'color': '#2c3e50',
+                    }),
+                    html.Span('每簇中距离中心最远的样本，可能是边界片或混聚样本', style={
+                        'fontSize': '11px', 'color': '#888', 'marginLeft': '8px',
+                    }),
+                ], style={'marginTop': '16px', 'marginBottom': '6px', 'display': 'flex', 'alignItems': 'baseline'}),
+                html.Div(id='outlier-list', style={
+                    'marginTop': '16px',
+                    'padding': '12px 14px',
+                    'border': '1px solid #e4e8ef',
+                    'borderRadius': '10px',
+                    'backgroundColor': '#f8fafc',
+                    'boxShadow': '0 1px 3px rgba(0,0,0,0.04)',
+                }),
             ], style={'marginTop': '12px', 'padding': '0 8px'}),
         ],
     )

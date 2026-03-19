@@ -142,13 +142,64 @@ def register_similarity_callbacks(app):
                 if neighbor_is_distance:
                     order = np.argsort(neighbor_matrix[i])
                     nearest_idx = [idx for idx in order if idx != i][:k]
-                    neighbors = [f"{labels[j]}（距离 {neighbor_matrix[i][j]:.3f}）" for j in nearest_idx]
+                    vals = [neighbor_matrix[i][j] for j in nearest_idx]
+                    # 距离：越小越相近 → 绿色
+                    def _badge_color(v):
+                        if v < 1.0: return ('#1a7a3a', '#eafaf1')
+                        if v < 2.0: return ('#b7770d', '#fef9e7')
+                        return ('#c0392b', '#fdecea')
+                    badges = [
+                        html.Span([
+                            html.Span(f"簇{labels[j]}", style={'fontWeight': '700'}),
+                            html.Span(f" {v:.3f}", style={'opacity': '0.85'}),
+                        ], style={
+                            'display': 'inline-flex', 'alignItems': 'center', 'gap': '2px',
+                            'padding': '3px 8px', 'borderRadius': '12px', 'fontSize': '12px',
+                            'color': _badge_color(v)[0],
+                            'backgroundColor': _badge_color(v)[1],
+                            'border': f"1px solid {_badge_color(v)[0]}44",
+                        }) for j, v in zip(nearest_idx, vals)
+                    ]
                 else:
                     order = np.argsort(-neighbor_matrix[i])
                     nearest_idx = [idx for idx in order if idx != i][:k]
-                    neighbors = [f"{labels[j]}（相似度 {neighbor_matrix[i][j]:.3f}）" for j in nearest_idx]
-                nearest_children.append(html.Li(f"簇 {cid}: " + ", ".join(neighbors)))
-            nearest_list = html.Ul(nearest_children)
+                    vals = [neighbor_matrix[i][j] for j in nearest_idx]
+                    # 相似度：越大越相近 → 绿色
+                    def _badge_color(v):
+                        if v > 0.8: return ('#1a7a3a', '#eafaf1')
+                        if v > 0.5: return ('#b7770d', '#fef9e7')
+                        return ('#c0392b', '#fdecea')
+                    badges = [
+                        html.Span([
+                            html.Span(f"簇{labels[j]}", style={'fontWeight': '700'}),
+                            html.Span(f" {v:.3f}", style={'opacity': '0.85'}),
+                        ], style={
+                            'display': 'inline-flex', 'alignItems': 'center', 'gap': '2px',
+                            'padding': '3px 8px', 'borderRadius': '12px', 'fontSize': '12px',
+                            'color': _badge_color(v)[0],
+                            'backgroundColor': _badge_color(v)[1],
+                            'border': f"1px solid {_badge_color(v)[0]}44",
+                        }) for j, v in zip(nearest_idx, vals)
+                    ]
+                nearest_children.append(html.Div([
+                    html.Div(
+                        f"簇 {cid}",
+                        style={'fontSize': '12px', 'fontWeight': '700', 'color': '#2c3e50',
+                               'marginBottom': '5px'},
+                    ),
+                    html.Div(badges, style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '4px'}),
+                ], style={
+                    'padding': '8px 10px', 'border': '1px solid #e4e8ef',
+                    'borderRadius': '8px', 'backgroundColor': '#fff',
+                    'boxShadow': '0 1px 3px rgba(0,0,0,0.04)',
+                    'minWidth': '140px', 'flex': '1',
+                }))
+            nearest_list = html.Div(
+                nearest_children,
+                style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '8px',
+                       'maxHeight': '320px', 'overflowY': 'auto',
+                       'padding': '2px'},
+            )
         else:
             nearest_list = ""
 

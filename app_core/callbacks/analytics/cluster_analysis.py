@@ -105,9 +105,31 @@ def build_cluster_pattern_insights(dff, cluster_col, feature_cols, selected_clus
     if not insights:
         return html.Div('当前筛选下样本不足，暂时无法提取稳定模式。', style={'color': '#666'})
 
+    # 每条洞察对应图标与颜色
+    _ICONS = ['📊', '🏷️', '🔗', '⭐']
+    _COLORS = ['#1a6fad', '#2a7a4a', '#7d3c98', '#b7770d']
+
+    insight_cards = []
+    for idx_i, text in enumerate(insights):
+        ic = _ICONS[idx_i % len(_ICONS)]
+        col = _COLORS[idx_i % len(_COLORS)]
+        insight_cards.append(html.Div([
+            html.Span(ic, style={'fontSize': '16px', 'marginRight': '8px', 'flexShrink': '0'}),
+            html.Span(text, style={'fontSize': '12px', 'color': '#333', 'lineHeight': '1.6'}),
+        ], style={
+            'display': 'flex', 'alignItems': 'flex-start',
+            'padding': '9px 12px',
+            'borderRadius': '8px',
+            'backgroundColor': col + '0d',
+            'border': f'1px solid {col}33',
+            'marginBottom': '7px',
+        }))
+
     content = [
-        html.Div('自动模式洞察', style={'fontWeight': '600', 'marginBottom': '6px'}),
-        html.Ul([html.Li(text) for text in insights], style={'margin': '0', 'paddingLeft': '18px', 'color': '#333'})
+        html.Div('自动模式洞察', style={
+            'fontWeight': '700', 'fontSize': '13px', 'color': '#2c3e50', 'marginBottom': '8px',
+        }),
+        html.Div(insight_cards),
     ]
     if selected_detail is not None:
         content.append(selected_detail)
@@ -433,11 +455,45 @@ def register_cluster_analysis_callbacks(app):
             confidence = '中'
         if min(len(a_df), len(b_df)) < 12:
             confidence = '低'
-        summary_items.append(html.Li(f"结果置信度：{confidence}（受样本量影响）。"))
+
+        conf_color = {'高': '#27ae60', '中': '#e67e22', '低': '#e74c3c'}[confidence]
+
+        _ITEM_ICONS = ['📦', '🏆', '🔩', '🏺', '📈']
+        summary_cards = []
+        for i_idx, item in enumerate(summary_items):
+            ic = _ITEM_ICONS[i_idx % len(_ITEM_ICONS)]
+            summary_cards.append(html.Div([
+                html.Span(ic, style={'marginRight': '7px', 'flexShrink': '0'}),
+                item if isinstance(item, str) else item.children,
+            ], style={
+                'display': 'flex', 'alignItems': 'flex-start',
+                'fontSize': '12px', 'color': '#333', 'lineHeight': '1.65',
+                'padding': '7px 10px',
+                'borderRadius': '7px',
+                'backgroundColor': '#f8fafc',
+                'border': '1px solid #e4e8ef',
+                'marginBottom': '6px',
+            }))
+
+        conf_badge = html.Span([
+            html.Span('置信度：', style={'color': '#666'}),
+            html.Span(confidence, style={
+                'color': conf_color, 'fontWeight': '700',
+                'backgroundColor': conf_color + '18',
+                'padding': '2px 8px', 'borderRadius': '10px',
+                'border': f'1px solid {conf_color}44',
+                'marginLeft': '4px',
+            }),
+            html.Span(f'（min 样本 {min(len(a_df), len(b_df))} 片）',
+                      style={'color': '#aaa', 'fontSize': '11px', 'marginLeft': '6px'}),
+        ], style={'display': 'inline-flex', 'alignItems': 'center', 'marginTop': '4px'})
 
         summary = html.Div([
-            html.Div('地层差异解读', style={'fontWeight': '600', 'marginBottom': '6px'}),
-            html.Ul(summary_items, style={'margin': '0', 'paddingLeft': '18px'})
+            html.Div('地层差异解读', style={
+                'fontWeight': '700', 'fontSize': '13px', 'color': '#2c3e50', 'marginBottom': '8px',
+            }),
+            html.Div(summary_cards),
+            conf_badge,
         ])
 
         return options, unit_a, options, unit_b, summary, fig

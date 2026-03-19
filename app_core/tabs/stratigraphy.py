@@ -2,6 +2,13 @@
 
 from dash import dcc, html
 
+_CARD = {'padding': '14px 16px', 'border': '1px solid #e4e8ef',
+         'borderRadius': '10px', 'backgroundColor': '#fff',
+         'boxShadow': '0 1px 4px rgba(0,0,0,0.05)', 'marginBottom': '12px'}
+
+_CARD_TITLE = {'fontSize': '13px', 'fontWeight': '700', 'color': '#2c3e50',
+               'margin': '0 0 10px 0', 'letterSpacing': '0.02em'}
+
 
 def build_stratigraphy_tab():
     """构建地层流动分析页面。
@@ -12,115 +19,79 @@ def build_stratigraphy_tab():
         label='地层流动',
         value='stratigraphy',
         children=[
-            # 控制区
             html.Div([
-                html.Div([
-                    html.Label('层位筛选'),
-                    dcc.Dropdown(
-                        id='strat-unit-filter',
-                        multi=True,
-                        placeholder='默认显示全部层位',
-                    ),
-                ], style={'flex': '2', 'minWidth': '220px'}),
-                html.Div([
-                    html.Label('簇筛选'),
-                    dcc.Dropdown(
-                        id='strat-cluster-filter',
-                        multi=True,
-                        placeholder='默认显示全部簇',
-                    ),
-                ], style={'flex': '2', 'minWidth': '180px'}),
-                html.Div([
-                    html.Label('热力图模式'),
-                    dcc.RadioItems(
-                        id='strat-heatmap-mode',
-                        options=[
-                            {'label': '绝对数', 'value': 'count'},
-                            {'label': '按层归一化', 'value': 'by_layer'},
-                            {'label': '按簇归一化', 'value': 'by_cluster'},
-                        ],
-                        value='count',
-                        labelStyle={'display': 'block', 'marginBottom': '2px'},
-                    ),
-                ], style={'width': '150px'}),
-                html.Div([
-                    html.Label('Sankey 最小连线（片）'),
-                    dcc.Slider(
-                        id='strat-min-link',
-                        min=1,
-                        max=50,
-                        step=1,
-                        value=5,
-                        marks={1: '1', 10: '10', 25: '25', 50: '50'},
-                        tooltip={'placement': 'bottom', 'always_visible': False},
-                    ),
-                ], style={'flex': '2', 'minWidth': '200px'}),
-            ], style={
-                'display': 'flex',
-                'alignItems': 'flex-start',
-                'gap': '16px',
-                'marginBottom': '12px',
-                'padding': '8px',
-                'flexWrap': 'wrap',
-            }),
 
-            # Sankey 图
-            html.Div([
-                html.Div('层位 → 簇 流向图', style={
-                    'fontWeight': '600',
-                    'marginBottom': '6px',
-                    'fontSize': '14px',
-                    'color': '#333',
-                }),
-                dcc.Loading(
-                    type='default',
-                    children=dcc.Graph(id='stratigraphy-sankey', style={'height': '520px'}),
-                ),
-            ], style={
-                'padding': '12px',
-                'border': '1px solid #e6e6e6',
-                'borderRadius': '8px',
-                'backgroundColor': '#fff',
-                'marginBottom': '12px',
-            }),
-
-            # 热力图 + 统计并排
-            html.Div([
+                # ── 控制区 ─────────────────────────────────────────────────
                 html.Div([
-                    html.Div('簇跨层分布热力图', style={
-                        'fontWeight': '600',
-                        'marginBottom': '6px',
-                        'fontSize': '14px',
-                        'color': '#333',
-                    }),
+                    html.Div([
+                        html.Label('层位筛选'),
+                        dcc.Dropdown(
+                            id='strat-unit-filter',
+                            multi=True,
+                            placeholder='默认显示全部层位',
+                        ),
+                    ], style={'flex': '2', 'minWidth': '200px'}),
+
+                    html.Div([
+                        html.Label('簇筛选'),
+                        dcc.Dropdown(
+                            id='strat-cluster-filter',
+                            multi=True,
+                            placeholder='默认显示全部簇',
+                        ),
+                    ], style={'flex': '2', 'minWidth': '160px'}),
+
+                    html.Div([
+                        html.Label('热力图模式'),
+                        dcc.RadioItems(
+                            id='strat-heatmap-mode',
+                            options=[
+                                {'label': '绝对数', 'value': 'count'},
+                                {'label': '按层归一化', 'value': 'by_layer'},
+                                {'label': '按簇归一化', 'value': 'by_cluster'},
+                            ],
+                            value='count',
+                            labelStyle={'display': 'block', 'marginBottom': '3px'},
+                        ),
+                    ], style={'minWidth': '130px'}),
+
+                    html.Div([
+                        html.Label('Sankey 最小连线（片）'),
+                        dcc.Slider(
+                            id='strat-min-link',
+                            min=1, max=50, step=1, value=5,
+                            marks={1: '1', 10: '10', 25: '25', 50: '50'},
+                            tooltip={'placement': 'bottom', 'always_visible': False},
+                        ),
+                    ], style={'flex': '3', 'minWidth': '200px'}),
+                ], className='analysis-control-bar'),
+
+                # ── Sankey 图 ───────────────────────────────────────────────
+                html.Div([
+                    html.P('层位 → 簇 流向图', className='dash-card-title'),
                     dcc.Loading(
                         type='default',
-                        children=dcc.Graph(id='stratigraphy-heatmap', style={'height': '420px'}),
+                        children=dcc.Graph(id='stratigraphy-sankey', style={'height': '500px'}),
                     ),
-                ], style={
-                    'flex': '2',
-                    'minWidth': '320px',
-                    'padding': '12px',
-                    'border': '1px solid #e6e6e6',
-                    'borderRadius': '8px',
-                    'backgroundColor': '#fff',
-                }),
+                ], style=_CARD),
+
+                # ── 热力图 + 统计并排 ────────────────────────────────────────
                 html.Div([
-                    html.Div('统计摘要', style={
-                        'fontWeight': '600',
-                        'marginBottom': '8px',
-                        'fontSize': '14px',
-                        'color': '#333',
-                    }),
-                    html.Div(id='stratigraphy-stats'),
-                ], style={
-                    'flex': '1',
-                    'minWidth': '220px',
-                    'padding': '12px',
-                    'border': '1px solid #e6e6e6',
-                    'borderRadius': '8px',
-                    'backgroundColor': '#fafafa',
-                }),
-            ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'alignItems': 'flex-start'}),
+                    html.Div([
+                        html.P('簇跨层分布热力图', className='dash-card-title'),
+                        dcc.Loading(
+                            type='default',
+                            children=dcc.Graph(id='stratigraphy-heatmap', style={'height': '400px'}),
+                        ),
+                    ], style={**_CARD, 'flex': '2', 'minWidth': '300px', 'marginBottom': '0'}),
+
+                    html.Div([
+                        html.P('统计摘要', className='dash-card-title'),
+                        html.Div(id='stratigraphy-stats'),
+                    ], style={**_CARD, 'flex': '1', 'minWidth': '200px',
+                               'backgroundColor': '#f8fafc', 'marginBottom': '0'}),
+                ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'alignItems': 'flex-start'}),
+
+            ], style={'padding': '14px'}),
         ],
     )
