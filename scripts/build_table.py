@@ -6,13 +6,16 @@
 
 import json
 import os
+from pathlib import Path
 import pandas as pd
 
-FEATURE_CSV = "all_features_dinov3.csv"
-CLUSTER_METADATA = "all_kmeans_new/cluster_metadata.json"
-INFO_CSV = "jd_sherds_info.csv"
-OUTPUT_CSV = "sherd_cluster_table_clustered_only.csv"
-IMAGE_ROOT = "all_cutouts"
+_ROOT = Path(__file__).parent.parent  # src1/
+
+FEATURE_CSV = str(_ROOT / "all_features_dinov3.csv")
+CLUSTER_METADATA = str(_ROOT / "all_kmeans_new/cluster_metadata.json")
+INFO_CSV = str(_ROOT / "scripts/jd_sherds_info.csv")
+OUTPUT_CSV = str(_ROOT / "sherd_cluster_table_clustered_only.csv")
+IMAGE_ROOT = str(_ROOT / "all_cutouts")
 
 # ========================
 # 1. 读取聚类元数据

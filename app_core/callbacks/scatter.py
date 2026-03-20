@@ -180,7 +180,6 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
         # 重聚类后重新计算的 UMAP（2D）保存到磁盘缓存，下次启动直接复用
         if selected_algorithm == 'umap' and selected_dimension == 2 and 'sample_id' in df.columns:
             try:
-                import numpy as np
                 umap_cache = Path(__file__).parent.parent.parent / 'umap_cache.npz'
                 umap_cols = [f'{reduction_key}_0', f'{reduction_key}_1']
                 if all(c in df.columns for c in umap_cols):
