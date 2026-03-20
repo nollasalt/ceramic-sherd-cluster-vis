@@ -36,56 +36,51 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
         """根据簇筛选结果联动更新 unit/part/type 选项。"""
         return get_filter_options(selected_clusters)
 
-    @app.callback(
-        Output('hover-state', 'data'),
-        [Input('tsne-plot', 'hoverData')],
-        [State('sample-cluster-mapping', 'data')]
-    )
-    def update_hover_state(hoverData, sample_cluster_mapping):
-        """将悬停样本映射为簇 ID，供前端高亮同簇点。"""
-        if not hoverData or not sample_cluster_mapping:
-            return {'hovered_cluster': None}
-        try:
-            hover_point = hoverData['points'][0]
-            if 'customdata' in hover_point and hover_point['customdata']:
-                sample_id = hover_point['customdata'][0]
-                cluster_id = sample_cluster_mapping.get(sample_id)
-                return {'hovered_cluster': cluster_id}
-            return {'hovered_cluster': None}
-        except Exception:
-            return {'hovered_cluster': None}
-
     app.clientside_callback(
         """
-        function(hover_state, figure) {
-            if (!figure) return figure;
+        (function() {
+            var _lastCluster = null;
+            var _timer = null;
+            return function(hoverData) {
+                var container = document.getElementById('tsne-plot');
+                if (!container) return window.dash_clientside.no_update;
+                var el = container.querySelector('.js-plotly-plot') || container;
+                if (!el.data || !el.data.length) return window.dash_clientside.no_update;
 
-            const has3d = figure.data && figure.data.some(t => t.type === 'scatter3d');
-            if (has3d) {
-                return window.dash_clientside.no_update;
-            }
+                if (el.data.some(function(t) { return t.type === 'scatter3d'; }))
+                    return window.dash_clientside.no_update;
 
-            const hovered_cluster = hover_state ? hover_state.hovered_cluster : null;
-            const new_figure = JSON.parse(JSON.stringify(figure));
+                var hoveredName = null;
+                if (hoverData && hoverData.points && hoverData.points.length > 0) {
+                    var cn = hoverData.points[0].curveNumber;
+                    hoveredName = el.data[cn] ? el.data[cn].name : null;
+                }
 
-            if (new_figure.data) {
-                new_figure.data.forEach(trace => {
-                    if (hovered_cluster !== null && hovered_cluster !== undefined) {
-                        const name = trace.name || '';
-                        const clusterMatch = name === String(hovered_cluster) || name.startsWith(String(hovered_cluster) + ',');
-                        trace.opacity = clusterMatch ? 1.0 : 0.2;
+                // 同一簇内移动：直接跳过，不重绘
+                if (hoveredName === _lastCluster) return window.dash_clientside.no_update;
+                _lastCluster = hoveredName;
+
+                // 防抖 60ms：快速掠过时只在停顿后才更新透明度
+                clearTimeout(_timer);
+                _timer = setTimeout(function() {
+                    if (!el.data) return;
+                    var n = el.data.length;
+                    var opacities = new Array(n);
+                    if (hoveredName !== null) {
+                        for (var i = 0; i < n; i++)
+                            opacities[i] = (el.data[i].name === hoveredName) ? 1.0 : 0.15;
                     } else {
-                        trace.opacity = 0.85;
+                        for (var i = 0; i < n; i++) opacities[i] = 0.85;
                     }
-                });
-            }
+                    Plotly.restyle(el, {opacity: opacities});
+                }, 60);
 
-            return new_figure;
-        }
+                return window.dash_clientside.no_update;
+            };
+        })()
         """,
-        Output('tsne-plot', 'figure', allow_duplicate=True),
-        [Input('hover-state', 'data')],
-        [State('tsne-plot', 'figure')],
+        Output('hover-state', 'data'),
+        Input('tsne-plot', 'hoverData'),
         prevent_initial_call=True
     )
 
@@ -166,6 +161,23 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
             df, reduction_key = ensure_dimensionality_reduction(
                 df, feature_cols, algorithm=selected_algorithm, n_components=selected_dimension
             )
+
+        # 重聚类后重新计算的 UMAP（2D）保存到磁盘缓存，下次启动直接复用
+        if selected_algorithm == 'umap' and selected_dimension == 2 and 'sample_id' in df.columns:
+            try:
+                import numpy as np
+                umap_cache = Path(__file__).parent.parent.parent / 'umap_cache.npz'
+                umap_cols = [f'{reduction_key}_0', f'{reduction_key}_1']
+                if all(c in df.columns for c in umap_cols):
+                    np.savez_compressed(
+                        umap_cache,
+                        sample_id=df['sample_id'].astype(str).values,
+                        x=df[umap_cols[0]].values,
+                        y=df[umap_cols[1]].values,
+                    )
+                    print(f'✓ UMAP 坐标已缓存到 {umap_cache.name}')
+            except Exception as e:
+                print(f'UMAP 缓存写入失败: {e}')
 
         part_symbol_col, part_symbol_map = get_part_symbol_settings(df)
         symbol_kwargs = {}
