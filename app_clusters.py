@@ -254,6 +254,11 @@ def create_app():
     )
     app.title = APP_CONFIG['title']
 
+    # 从上次聚类结果中读取初始值，避免重启后显示默认值
+    initial_n_clusters = cluster_metadata.get('n_clusters', 20) if cluster_metadata else 20
+    initial_algorithm = cluster_metadata.get('algorithm', 'kmeans') if cluster_metadata else 'kmeans'
+    initial_cluster_mode = cluster_metadata.get('cluster_mode', DEFAULT_CLUSTER_MODE) if cluster_metadata else DEFAULT_CLUSTER_MODE
+
     app.layout = build_layout(
         fig=fig,
         clusters=clusters,
@@ -261,7 +266,9 @@ def create_app():
         init_part_options=part_options,
         init_type_options=type_options,
         algorithm_options=algorithm_options,
-        initial_cluster_mode=DEFAULT_CLUSTER_MODE,
+        initial_cluster_mode=initial_cluster_mode,
+        initial_n_clusters=initial_n_clusters,
+        initial_algorithm=initial_algorithm,
         cluster_metadata=cluster_metadata,
         df=df,
         feature_cols=feature_cols,

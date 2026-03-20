@@ -34,12 +34,14 @@ def build_layout(
     init_type_options,
     algorithm_options,
     initial_cluster_mode,
-    cluster_metadata,
-    df,
-    feature_cols,
-    raw_feature_cols,
-    cluster_col,
-    image_col,
+    initial_n_clusters=20,
+    initial_algorithm='kmeans',
+    cluster_metadata=None,
+    df=None,
+    feature_cols=None,
+    raw_feature_cols=None,
+    cluster_col=None,
+    image_col=None,
 ):
     """构建 Dash 主界面布局。
 
@@ -64,18 +66,19 @@ def build_layout(
 
         # ── 顶部控制栏 ─────────────────────────────────────────────────────────
         html.Div([
-            # 组 1：聚类数量
+            # 组 1：聚类数量（Leiden 不需要 K，自动隐藏）
             html.Div([
                 html.Span('聚类数量 K', className='control-label-inline'),
                 dcc.Input(
-                    id='n-clusters-input', type='number', value=20, min=2, step=1,
+                    id='n-clusters-input', type='number', value=initial_n_clusters, min=2, step=1,
                     style={
                         'width': '68px', 'padding': '5px 8px',
                         'border': '1px solid #d0d8e8', 'borderRadius': '6px',
                         'fontSize': '13px', 'color': '#222',
                     },
                 ),
-            ], className='top-control-group'),
+            ], id='n-clusters-group', className='top-control-group',
+               style={'display': 'none' if initial_algorithm == 'leiden' else 'flex'}),
 
             # 组 2：聚类算法
             html.Div([
@@ -88,7 +91,7 @@ def build_layout(
                         {'label': '谱聚类 (Spectral)', 'value': 'spectral-kmeans'},
                         {'label': 'Leiden (kNN)', 'value': 'leiden'},
                     ],
-                    value='kmeans',
+                    value=initial_algorithm,
                     clearable=False,
                     style={'width': '170px'},
                 ),

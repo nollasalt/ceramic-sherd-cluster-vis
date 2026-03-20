@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 import dash
+from performance_utils import plot_cache
 from dash import Input, Output, State, html
 
 from data_processing import (
@@ -23,7 +24,8 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
 
     @app.callback(
         [Output('recluster-status', 'children'),
-         Output('reload-trigger', 'data')],
+         Output('reload-trigger', 'data'),
+         Output('cluster-metadata-store', 'data')],
         Input('recluster-button', 'n_clicks'),
         [State('n-clusters-input', 'value'),
          State('cluster-mode-selector', 'value'),
@@ -38,7 +40,7 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
             tuple[str, int | NoUpdate]: 状态提示文本与刷新触发计数。
         """
         if n_clicks == 0 or n_clicks is None:
-            return '', dash.no_update
+            return '', dash.no_update, dash.no_update
 
         try:
             cluster_algorithm = cluster_algorithm or 'kmeans'
@@ -64,6 +66,14 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                     pca_components=pca_comp,
                 )
             elif cluster_algorithm.startswith('spectral'):
+                import pandas as pd
+                sample_count = len(pd.read_csv(features_csv, usecols=[0]))
+                if sample_count > 5000:
+                    return html.Div(
+                        f'✗ 谱聚类不支持大数据集（当前 {sample_count} 个样本，上限 5000）。'
+                        '请改用 K-Means 或 Leiden。',
+                        style={'color': 'red', 'fontWeight': 'bold'}
+                    ), dash.no_update, dash.no_update
                 _, _, assign_labels = cluster_algorithm.partition('-')
                 assign_labels = assign_labels or 'kmeans'
                 clustering_result = perform_spectral_clustering(
@@ -142,7 +152,11 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
             ])
 
             new_trigger = (current_trigger or 0) + 1
-            return success_msg, new_trigger
+            # 清除图表缓存，确保所有分析页面显示新聚类数据
+            plot_cache.clear()
+            # 把新 metadata（不含 piece_to_cluster，体积太大）写入客户端 Store
+            store_metadata = {k: v for k, v in metadata.items() if k != 'piece_to_cluster'}
+            return success_msg, new_trigger, store_metadata
 
         except Exception as exc:
             import traceback
@@ -150,6 +164,20 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
             error_details = traceback.format_exc()
             print(f"聚类错误: {error_details}")
             error_msg = html.Div(f'✗ 聚类失败: {str(exc)}', style={'color': 'red', 'fontWeight': 'bold'})
-            return error_msg, dash.no_update
+            return error_msg, dash.no_update, dash.no_update
+
+    # 算法切换时动态显示/隐藏 K 输入框（Leiden 不需要 K）
+    app.clientside_callback(
+        """
+        function(algorithm) {
+            var needsK = ['kmeans', 'agglomerative-ward', 'spectral-kmeans'];
+            var show = needsK.indexOf(algorithm) !== -1;
+            return show ? {display: 'flex', alignItems: 'center', gap: '6px', padding: '0 4px'}
+                        : {display: 'none'};
+        }
+        """,
+        Output('n-clusters-group', 'style'),
+        Input('cluster-algorithm-selector', 'value'),
+    )
 
     return app

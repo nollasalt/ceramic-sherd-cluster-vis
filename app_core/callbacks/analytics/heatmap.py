@@ -9,10 +9,11 @@ from data_processing import create_cluster_pattern_heatmap
 def register_heatmap_callbacks(app):
     @app.callback(
         Output('heatmap-container', 'children'),
-        Input('visualization-tabs', 'value'),
+        [Input('visualization-tabs', 'value'),
+         Input('reload-trigger', 'data')],
         State('cluster-metadata-store', 'data')
     )
-    def update_heatmap(tab_value, cluster_metadata):
+    def update_heatmap(tab_value, _reload, cluster_metadata):
         """生成簇中心热力图并返回图形组件。"""
         if tab_value != 'heatmap' or cluster_metadata is None:
             return html.Div('请选择"聚类特征热力图"选项卡')

@@ -54,19 +54,19 @@ image_cache = PerformanceCache(max_size=200)
 
 
 def cache_plot_result(func):
-    """缓存图表结果的装饰器"""
+    """缓存图表结果的装饰器，key 包含当前数据版本号以在重聚类后自动失效。"""
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         """执行被装饰函数，并按参数缓存结果。"""
-        # 生成缓存键
-        cache_key = f"{func.__name__}_{hash(str(args) + str(sorted(kwargs.items())))}"
-        
-        # 尝试从缓存获取
+        from app_core.data_cache import get_data_cache
+        dc = get_data_cache()
+        version = dc.get('version', 0) if dc else 0
+        cache_key = f"{func.__name__}_v{version}_{hash(str(args) + str(sorted(kwargs.items())))}"
+
         cached_result = plot_cache.get(cache_key)
         if cached_result is not None:
             return cached_result
-        
-        # 计算新结果并缓存
+
         result = func(*args, **kwargs)
         plot_cache.set(cache_key, result)
         return result
