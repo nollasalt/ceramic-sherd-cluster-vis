@@ -27,7 +27,8 @@ function Get-AppProcess {
 }
 
 function Get-FrpcProcess {
-    Get-Process -Name 'frpc' -ErrorAction SilentlyContinue
+    Get-CimInstance Win32_Process |
+        Where-Object { $_.CommandLine -like "*$FRPC_CONF*" }
 }
 
 function Write-Msg {
@@ -116,7 +117,7 @@ function Stop-Services {
     if ($frpc) {
         $answer = Read-Host "Stop frpc tunnel too? [y/N]"
         if ($answer -eq 'y' -or $answer -eq 'Y') {
-            $frpc | Stop-Process -Force
+        $frpc | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
             Write-Msg "[OK] frpc stopped" Green
         }
     }
@@ -138,7 +139,7 @@ function Show-Status {
 
     $frpc = Get-FrpcProcess
     if ($frpc) {
-        Write-Msg "  frpc  [RUNNING]  PID=$($frpc.Id)" Green
+        Write-Msg "  frpc  [RUNNING]  PID=$($frpc.ProcessId)" Green
     } else {
         Write-Msg "  frpc  [STOPPED]" DarkGray
     }
