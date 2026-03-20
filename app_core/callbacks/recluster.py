@@ -107,7 +107,7 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                 json.dump(metadata, f, indent=2, ensure_ascii=False)
 
             result = subprocess.run(
-                ['python', str(Path(__file__).parent.parent.parent / 'build_table.py')],
+                ['python', str(Path(__file__).parent.parent.parent / 'scripts' / 'build_table.py')],
                 capture_output=True,
                 text=True,
                 cwd=str(Path(__file__).parent.parent.parent)
