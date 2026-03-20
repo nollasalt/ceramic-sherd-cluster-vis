@@ -27,8 +27,8 @@ function Get-AppProcess {
 }
 
 function Get-FrpcProcess {
-    Get-CimInstance Win32_Process |
-        Where-Object { $_.CommandLine -like "*$FRPC_CONF*" }
+    Get-Process -Name frpc -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -eq $FRPC_EXE }
 }
 
 function Write-Msg {
