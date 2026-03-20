@@ -117,7 +117,7 @@ function Stop-Services {
     if ($frpc) {
         $answer = Read-Host "Stop frpc tunnel too? [y/N]"
         if ($answer -eq 'y' -or $answer -eq 'Y') {
-        $frpc | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+        $frpc | ForEach-Object { Stop-Process -Id $_.Id -Force }
             Write-Msg "[OK] frpc stopped" Green
         }
     }
@@ -139,7 +139,7 @@ function Show-Status {
 
     $frpc = Get-FrpcProcess
     if ($frpc) {
-        Write-Msg "  frpc  [RUNNING]  PID=$($frpc.ProcessId)" Green
+        Write-Msg "  frpc  [RUNNING]  PID=$($frpc.Id)" Green
     } else {
         Write-Msg "  frpc  [STOPPED]" DarkGray
     }
