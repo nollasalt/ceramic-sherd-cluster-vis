@@ -15,6 +15,10 @@ from app_core.tabs.help import build_help_tab
 from app_core.tabs.stratigraphy import build_stratigraphy_tab
 from app_core.tabs.cooccurrence import build_cooccurrence_tab
 from app_core.tabs.borderline import build_borderline_tab
+from app_core.tabs.type_validation import build_type_validation_tab
+from app_core.tabs.part_analysis import build_part_analysis_tab
+from app_core.tabs.cluster_trend import build_cluster_trend_tab
+from app_core.tabs.cluster_network import build_cluster_network_tab
 
 
 def _group_tab(value, label):
@@ -161,13 +165,17 @@ def build_layout(
                 build_cluster_quality_tab(),
                 build_heatmap_tab(),
                 build_similarity_tab(),
+                build_cluster_network_tab(),
                 # ── 构成分析 ───────────────────────────────────
                 _group_tab('group-analysis', '构成分析'),
                 build_category_breakdown_tab(),
+                build_type_validation_tab(),
+                build_part_analysis_tab(),
                 build_cluster_analysis_tab(),
                 # ── 地层分析 ───────────────────────────────────
                 _group_tab('group-stratigraphy', '地层分析'),
                 build_stratigraphy_tab(),
+                build_cluster_trend_tab(),
                 build_cooccurrence_tab(),
             ],
         ),

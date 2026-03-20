@@ -16,6 +16,9 @@ from .stratigraphy import register_stratigraphy_callbacks
 from .cooccurrence import register_cooccurrence_callbacks
 from .type_validation import register_type_validation_callbacks
 from .borderline import register_borderline_callbacks
+from .part_analysis import register_part_analysis_callbacks
+from .cluster_trend import register_cluster_trend_callbacks
+from .cluster_network import register_cluster_network_callbacks
 
 
 def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
@@ -44,4 +47,7 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
     register_cooccurrence_callbacks(app)
     register_type_validation_callbacks(app)
     register_borderline_callbacks(app, image_root=image_root)
+    register_part_analysis_callbacks(app)
+    register_cluster_trend_callbacks(app)
+    register_cluster_network_callbacks(app)
     return app

@@ -64,6 +64,7 @@ def build_scatter_tab(fig, clusters, init_unit_options, init_part_options, init_
                 html.Div(id='plot-loading-status', style={'textAlign': 'center', 'marginTop': '8px', 'color': '#666'}),
             ], style={'flex': '3 1 0%'}),
             html.Div([
+                html.Div(id='hover-info-panel'),
                 html.Div([
                     html.Button('Prev', id='cluster-prev', n_clicks=0),
                     html.Button('Next', id='cluster-next', n_clicks=0),

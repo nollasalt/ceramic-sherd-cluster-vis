@@ -51,16 +51,26 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
                     return window.dash_clientside.no_update;
 
                 var hoveredName = null;
+                var infoText = '';
                 if (hoverData && hoverData.points && hoverData.points.length > 0) {
-                    var cn = hoverData.points[0].curveNumber;
+                    var pt = hoverData.points[0];
+                    var cn = pt.curveNumber;
                     hoveredName = el.data[cn] ? el.data[cn].name : null;
+                    var cd = pt.customdata || [];
+                    var sampleId = cd[0] != null ? cd[0] : '';
+                    var imgName  = cd[1] != null ? cd[1] : '';
+                    infoText = '簇 ' + hoveredName + '　样本 ' + sampleId + '　' + imgName;
                 }
 
-                // 同一簇内移动：直接跳过，不重绘
+                // 更新外部信息栏
+                var panel = document.getElementById('hover-info-panel');
+                if (panel) panel.textContent = infoText;
+
+                // 同一簇内移动：透明度不重绘
                 if (hoveredName === _lastCluster) return window.dash_clientside.no_update;
                 _lastCluster = hoveredName;
 
-                // 防抖 60ms：快速掠过时只在停顿后才更新透明度
+                // 防抖 60ms
                 clearTimeout(_timer);
                 _timer = setTimeout(function() {
                     if (!el.data) return;
@@ -68,7 +78,8 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
                     var opacities = new Array(n);
                     if (hoveredName !== null) {
                         for (var i = 0; i < n; i++)
-                            opacities[i] = (el.data[i].name === hoveredName) ? 1.0 : 0.15;
+                            opacities[i] = (el.data[i].name === hoveredName) ? 1.0 : 0.05;
+                            //透明度
                     } else {
                         for (var i = 0; i < n; i++) opacities[i] = 0.85;
                     }
@@ -161,6 +172,10 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
             df, reduction_key = ensure_dimensionality_reduction(
                 df, feature_cols, algorithm=selected_algorithm, n_components=selected_dimension
             )
+
+        # 将带降维列的 df 写回缓存，避免筛选时重复计算
+        data_cache['df'] = df
+        set_data_cache(data_cache)
 
         # 重聚类后重新计算的 UMAP（2D）保存到磁盘缓存，下次启动直接复用
         if selected_algorithm == 'umap' and selected_dimension == 2 and 'sample_id' in df.columns:

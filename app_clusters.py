@@ -183,6 +183,14 @@ def build_initial_figure(df: pd.DataFrame, feature_cols, cluster_col, hover_cols
     )
     fig.update_traces(marker={'size': 8})
     fig.update_layout(uirevision='tsne-plot')
+
+    # 把带 UMAP 列的 df 写回 data_cache，避免首次筛选时重算
+    from app_core.data_cache import get_data_cache
+    dc = get_data_cache()
+    if dc:
+        dc['df'] = df
+        set_data_cache(dc)
+
     return fig
 
 

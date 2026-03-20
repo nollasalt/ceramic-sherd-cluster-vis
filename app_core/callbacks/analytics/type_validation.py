@@ -93,14 +93,20 @@ def register_type_validation_callbacks(app):
         data_store,
     ):
         """渲染器类验证矩阵、纯度指数和逐器类明细。"""
-        if tab_value != 'category-breakdown':
+        if tab_value != 'type-validation':
             return dash.no_update, dash.no_update, dash.no_update
 
         data_cache = get_data_cache()
         df = data_cache['df']
         cluster_col = data_cache['cluster_col']
 
-        dff = df.copy()
+        # 只取需要的列，避免复制 128 个特征列
+        need_cols = [cluster_col, 'type_C']
+        for c in ['unit_C', 'part_C']:
+            if c in df.columns:
+                need_cols.append(c)
+        dff = df[need_cols]
+
         if selected_clusters:
             dff = dff[dff[cluster_col].isin(selected_clusters)]
         if selected_units and 'unit_C' in dff.columns:
@@ -128,12 +134,15 @@ def register_type_validation_callbacks(app):
         work_top = work[work['type_C'].isin(top_types)].copy()
 
         # ── 构建 pivot 矩阵（行=器类，列=簇） ──────────────────────────────
-        clusters_sorted = sorted(work_top[cluster_col].unique())
+        # 只保留 Top-N 器类中实际出现的簇；转字符串使 x 轴为类别轴，格子等宽
+        work_top = work[work['type_C'].isin(top_types)].copy()
+        work_top[cluster_col] = work_top[cluster_col].astype(str)
+        clusters_in_top = sorted(work_top[cluster_col].unique(), key=lambda x: int(x) if x.isdigit() else x)
         pivot = (
             work_top.groupby(['type_C', cluster_col])
             .size()
             .unstack(fill_value=0)
-            .reindex(columns=clusters_sorted, fill_value=0)
+            .reindex(columns=clusters_in_top, fill_value=0)
         )
         pivot = pivot.loc[[t for t in top_types if t in pivot.index]]
 
@@ -165,10 +174,13 @@ def register_type_validation_callbacks(app):
             color_continuous_scale='Blues',
             title=f'器类 × 簇 混淆矩阵（Top-{topn}，{title_suffix}）',
         )
-        fig.update_traces(
-            texttemplate='%{z:' + text_fmt + '}',
-            textfont_size=10,
-        )
+        n_cells = plot_matrix.shape[0] * plot_matrix.shape[1]
+        if n_cells <= 200:
+            fig.update_traces(
+                texttemplate='%{z:' + text_fmt + '}',
+                textfont_size=10,
+            )
+        # 单元格过多时不显示文字，避免遮挡
         fig.update_layout(
             margin=dict(l=120, r=40, t=60, b=80),
             xaxis=dict(title='簇编号', tickangle=-45, side='bottom'),
@@ -176,7 +188,7 @@ def register_type_validation_callbacks(app):
             coloraxis_colorbar=dict(title=colorbar_title, len=0.8),
         )
 
-        # ── sklearn 纯度指数（全量，非 Top-N） ─────────────────────────────
+        # ── sklearn 纯度指数（全量，非 Top-N，超大时降采样） ───────────────
         metrics = {}
         try:
             from sklearn.metrics import (
@@ -184,8 +196,11 @@ def register_type_validation_callbacks(app):
                 normalized_mutual_info_score,
                 homogeneity_completeness_v_measure,
             )
-            labels_true = work['type_C'].astype(str).values
-            labels_pred = work[cluster_col].astype(str).values
+            work_metric = work
+            if len(work_metric) > 5000:
+                work_metric = work_metric.sample(5000, random_state=42)
+            labels_true = work_metric['type_C'].astype(str).values
+            labels_pred = work_metric[cluster_col].astype(str).values
             metrics['ARI'] = float(adjusted_rand_score(labels_true, labels_pred))
             metrics['NMI'] = float(normalized_mutual_info_score(labels_true, labels_pred))
             h, c, v = homogeneity_completeness_v_measure(labels_true, labels_pred)

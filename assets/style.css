@@ -2,6 +2,25 @@
    陶片聚类可视化系统 · 全局样式
    ============================================================ */
 
+/* ── 散点图悬停提示框隐藏（改为外部信息栏显示）────────────── */
+#tsne-plot .hoverlayer .hovertext,
+#tsne-plot .hoverlayer g.hover { display: none !important; }
+
+/* ── 悬停信息栏 ──────────────────────────────────────────── */
+#hover-info-panel {
+  font-size: 12px;
+  color: #333;
+  padding: 5px 8px;
+  min-height: 24px;
+  background: #f0f4fa;
+  border: 1px solid #d0d8e8;
+  border-radius: 5px;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ── 基础重置 & 字体 ─────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 

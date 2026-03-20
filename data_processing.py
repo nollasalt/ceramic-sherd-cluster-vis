@@ -437,8 +437,11 @@ def ensure_dimensionality_reduction(df, feature_cols, algorithm='umap', n_compon
         algorithm = 'tsne'
     
     Xt = reducer.fit_transform(X_scaled)
-    for i in range(n_components):
-        df[f'{reduction_key}_{i}'] = Xt[:, i]
+    new_cols = pd.DataFrame(
+        {f'{reduction_key}_{i}': Xt[:, i] for i in range(n_components)},
+        index=df.index,
+    )
+    df = pd.concat([df, new_cols], axis=1)
     return df, reduction_key
 
 
