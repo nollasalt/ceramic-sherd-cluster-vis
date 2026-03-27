@@ -10,6 +10,14 @@ def build_scatter_tab(fig, clusters, init_unit_options, init_part_options, init_
     """
     return dcc.Tab(label='散点图', value='scatter', children=[
         html.Div([
+            # ── 使用说明 ───────────────────────────────────────────────────
+            html.Div([
+                html.P('📖 使用说明', style={'fontWeight': '600', 'fontSize': '13px', 'marginBottom': '8px', 'color': '#2c3e50'}),
+                html.P('本页面通过降维算法（UMAP/t-SNE/PCA）将高维特征投影到2D/3D空间，直观展示聚类结果。可通过地层、部位、器类等条件筛选样本，点击散点查看详细信息。右侧缩略图展示各簇的代表性样本。',
+                       style={'fontSize': '12px', 'color': '#555', 'lineHeight': '1.6', 'margin': '0'}),
+            ], style={'padding': '12px 14px', 'backgroundColor': '#f3e5f5', 'border': '1px solid #ce93d8',
+                     'borderRadius': '8px', 'marginBottom': '12px'}),
+
             html.Div([
                 html.Div([
                     html.Label('降维算法:'),

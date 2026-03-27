@@ -17,6 +17,13 @@ def build_cooccurrence_tab():
         value='cooccurrence',
         children=[
             html.Div([
+                # ── 使用说明 ───────────────────────────────────────────────────
+                html.Div([
+                    html.P('📖 使用说明', style={'fontWeight': '600', 'fontSize': '13px', 'marginBottom': '8px', 'color': '#2c3e50'}),
+                    html.P('本页面分析不同簇在同一地层中共同出现的模式。共现矩阵热力图显示簇对在多少层位中同时出现，树状图按共现相似度对簇进行聚类。高共现度表明这些器物群可能属于同一使用场景或时期，有助于理解器物组合关系。',
+                           style={'fontSize': '12px', 'color': '#555', 'lineHeight': '1.6', 'margin': '0'}),
+                ], style={'padding': '12px 14px', 'backgroundColor': '#fff9c4', 'border': '1px solid #fff176',
+                         'borderRadius': '8px', 'marginBottom': '12px'}),
 
                 # ── 控制区 ─────────────────────────────────────────────────
                 html.Div([

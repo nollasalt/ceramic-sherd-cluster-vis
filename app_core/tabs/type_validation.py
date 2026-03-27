@@ -26,6 +26,13 @@ def build_type_validation_tab():
         value='type-validation',
         children=[
             html.Div([
+                # ── 使用说明 ───────────────────────────────────────────────────
+                html.Div([
+                    html.P('📖 使用说明', style={'fontWeight': '600', 'fontSize': '13px', 'marginBottom': '8px', 'color': '#2c3e50'}),
+                    html.P('本页面通过混淆矩阵验证聚类结果与人工标注器类的一致性。热力图展示每种器类在各簇中的分布，ARI和NMI指数评估整体聚类质量，逐器类纯度明细表显示每种器类的聚类集中度，帮助识别聚类算法对哪些器类分类效果较好。',
+                           style={'fontSize': '12px', 'color': '#555', 'lineHeight': '1.6', 'margin': '0'}),
+                ], style={'padding': '12px 14px', 'backgroundColor': '#f1f8e9', 'border': '1px solid #aed581',
+                         'borderRadius': '8px', 'marginBottom': '12px'}),
 
                 # ── 控制区 ─────────────────────────────────────────────────
                 html.Div([

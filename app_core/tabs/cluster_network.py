@@ -20,6 +20,13 @@ def build_cluster_network_tab():
         value='cluster-network',
         children=[
             html.Div([
+                # ── 使用说明 ───────────────────────────────────────────────────
+                html.Div([
+                    html.P('📖 使用说明', style={'fontWeight': '600', 'fontSize': '13px', 'marginBottom': '8px', 'color': '#2c3e50'}),
+                    html.P('本页面以网络图形式展示簇间关系，节点代表簇，边的粗细表示质心相似度。节点位置由PCA或UMAP降维决定，相似的簇会在视觉上聚集。节点大小反映簇的样本数，颜色可按主导器类、器部或簇编号着色，帮助发现簇的层次结构和"近亲"关系。',
+                           style={'fontSize': '12px', 'color': '#555', 'lineHeight': '1.6', 'margin': '0'}),
+                ], style={'padding': '12px 14px', 'backgroundColor': '#e8eaf6', 'border': '1px solid #9fa8da',
+                         'borderRadius': '8px', 'marginBottom': '12px'}),
 
                 # ── 控制区 ─────────────────────────────────────────────────
                 html.Div([

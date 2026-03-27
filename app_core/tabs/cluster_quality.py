@@ -10,6 +10,14 @@ def build_cluster_quality_tab():
         value='cluster-quality',
         children=[
             html.Div([
+                # ── 使用说明 ───────────────────────────────────────────────────
+                html.Div([
+                    html.P('📖 使用说明', style={'fontWeight': '600', 'fontSize': '13px', 'marginBottom': '8px', 'color': '#2c3e50'}),
+                    html.P('本页面评估聚类整体质量，展示轮廓系数、Davies-Bouldin指数等关键指标。顶部卡片显示全局质量得分，柱状图展示各簇的质量风险，帮助识别需要优化的簇。',
+                           style={'fontSize': '12px', 'color': '#555', 'lineHeight': '1.6', 'margin': '0'}),
+                ], style={'padding': '12px 14px', 'backgroundColor': '#fff3e0', 'border': '1px solid #ffb74d',
+                         'borderRadius': '8px', 'marginBottom': '12px'}),
+
                 dcc.Loading(
                     type='default',
                     children=html.Div([

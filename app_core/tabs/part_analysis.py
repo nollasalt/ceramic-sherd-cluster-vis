@@ -28,6 +28,13 @@ def build_part_analysis_tab():
         value='part-analysis',
         children=[
             html.Div([
+                # ── 使用说明 ───────────────────────────────────────────────────
+                html.Div([
+                    html.P('📖 使用说明', style={'fontWeight': '600', 'fontSize': '13px', 'marginBottom': '8px', 'color': '#2c3e50'}),
+                    html.P('本页面展示器部（口沿、腹部等）在各簇中的分布。若某簇全为同一器部，说明聚类捕获了器形特征；若某簇混有多种器部，则可能捕获了纹饰或胎土特征。器部熵指标量化了簇的器部多样性，帮助理解聚类依据的特征类型。',
+                           style={'fontSize': '12px', 'color': '#555', 'lineHeight': '1.6', 'margin': '0'}),
+                ], style={'padding': '12px 14px', 'backgroundColor': '#eceff1', 'border': '1px solid #b0bec5',
+                         'borderRadius': '8px', 'marginBottom': '12px'}),
 
                 # ── 控制区 ─────────────────────────────────────────────────
                 html.Div([

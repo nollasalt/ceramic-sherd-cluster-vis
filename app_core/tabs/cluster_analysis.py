@@ -13,6 +13,14 @@ def build_cluster_analysis_tab():
         value='cluster-analysis',
         children=[
             html.Div([
+                # ── 使用说明 ───────────────────────────────────────────────────
+                html.Div([
+                    html.P('📖 使用说明', style={'fontWeight': '600', 'fontSize': '13px', 'marginBottom': '8px', 'color': '#2c3e50'}),
+                    html.P('本页面提供簇质量评估和特征差异分析。顶部展示各簇的规模、纯度、紧密度等指标，选择特定簇后可查看其与全局均值的特征差异，帮助理解该簇的独特性。',
+                           style={'fontSize': '12px', 'color': '#555', 'lineHeight': '1.6', 'margin': '0'}),
+                ], style={'padding': '12px 14px', 'backgroundColor': '#e8f5e9', 'border': '1px solid #a5d6a7',
+                         'borderRadius': '8px', 'marginBottom': '12px'}),
+
                 html.Div([
                     html.Label('选择簇'),
                     dcc.Dropdown(id='analysis-cluster-selector', placeholder='选择一个簇查看特征差异'),

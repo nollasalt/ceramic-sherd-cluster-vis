@@ -27,6 +27,13 @@ def build_borderline_tab():
         value='borderline',
         children=[
             html.Div([
+                # ── 使用说明 ───────────────────────────────────────────────────
+                html.Div([
+                    html.P('📖 使用说明', style={'fontWeight': '600', 'fontSize': '13px', 'marginBottom': '8px', 'color': '#2c3e50'}),
+                    html.P('本页面展示位于簇边界的样本，这些样本距离本簇中心较远且接近其他簇。边界样本是拼对候选、分类错误或独特器物的首选排查对象。边界度分数越高，样本越接近其他簇的边界。模糊边界对统计显示哪些簇之间容易混淆。',
+                           style={'fontSize': '12px', 'color': '#555', 'lineHeight': '1.6', 'margin': '0'}),
+                ], style={'padding': '12px 14px', 'backgroundColor': '#ffe0b2', 'border': '1px solid #ffb74d',
+                         'borderRadius': '8px', 'marginBottom': '12px'}),
 
                 # ── 控制区 ─────────────────────────────────────────────────
                 html.Div([

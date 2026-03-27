@@ -10,6 +10,14 @@ def build_category_breakdown_tab():
         value='category-breakdown',
         children=[
             html.Div([
+                # ── 使用说明 ───────────────────────────────────────────────────
+                html.Div([
+                    html.P('📖 使用说明', style={'fontWeight': '600', 'fontSize': '13px', 'marginBottom': '8px', 'color': '#2c3e50'}),
+                    html.P('本页面展示各簇或各单位中不同类别（部位、器类、地层）的构成比例。通过堆叠柱状图直观显示每个分组的类别分布，帮助理解簇的组成特征或单位的器物组合模式。',
+                           style={'fontSize': '12px', 'color': '#555', 'lineHeight': '1.6', 'margin': '0'}),
+                ], style={'padding': '12px 14px', 'backgroundColor': '#f8bbd0', 'border': '1px solid #f48fb1',
+                         'borderRadius': '8px', 'marginBottom': '12px'}),
+
                 html.Div([
                     html.Label('类别字段:'),
                     dcc.Dropdown(

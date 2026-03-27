@@ -13,6 +13,14 @@ def build_similarity_tab():
         value='similarity',
         children=[
             html.Div([
+                # ── 使用说明 ───────────────────────────────────────────────────
+                html.Div([
+                    html.P('📖 使用说明', style={'fontWeight': '600', 'fontSize': '13px', 'marginBottom': '8px', 'color': '#2c3e50'}),
+                    html.P('本页面展示簇与簇之间的相似度矩阵，帮助识别哪些簇在特征空间中彼此接近。可选择余弦相似度或欧氏距离度量，启用层次重排可将相似的簇聚集在一起。下方列出每个簇的最近邻簇，便于发现潜在的簇合并机会或理解簇间关系。',
+                           style={'fontSize': '12px', 'color': '#555', 'lineHeight': '1.6', 'margin': '0'}),
+                ], style={'padding': '12px 14px', 'backgroundColor': '#ede7f6', 'border': '1px solid #b39ddb',
+                         'borderRadius': '8px', 'marginBottom': '12px'}),
+
                 html.Div([
                     html.Label('矩阵类型:'),
                     dcc.RadioItems(

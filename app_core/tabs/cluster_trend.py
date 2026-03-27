@@ -21,6 +21,14 @@ def build_cluster_trend_tab():
         children=[
             html.Div([
 
+                # ── 使用说明 ───────────────────────────────────────────────────
+                html.Div([
+                    html.P('📖 使用说明', style={'fontWeight': '600', 'fontSize': '13px', 'marginBottom': '8px', 'color': '#2c3e50'}),
+                    html.P('本页面展示各簇在不同地层中的分布趋势，自动识别兴起型（↑）、衰落型（↓）、瞬间型（⚡）、稳定型（─）四种器物群演变模式。使用层位筛选快捷按钮可快速选择分析范围，建议同时筛选不超过20个簇以保持图表清晰。',
+                           style={'fontSize': '12px', 'color': '#555', 'lineHeight': '1.6', 'margin': '0'}),
+                ], style={'padding': '12px 14px', 'backgroundColor': '#fff8e1', 'border': '1px solid #ffe082',
+                         'borderRadius': '8px', 'marginBottom': '12px'}),
+
                 # ── 控制区 ─────────────────────────────────────────────────
                 html.Div([
                     html.Div([

@@ -10,6 +10,14 @@ def build_representatives_tab():
         value='representatives',
         children=[
             html.Div([
+                # ── 使用说明 ───────────────────────────────────────────────────
+                html.Div([
+                    html.P('📖 使用说明', style={'fontWeight': '600', 'fontSize': '13px', 'marginBottom': '8px', 'color': '#2c3e50'}),
+                    html.P('本页面展示各簇的代表性样本图像，通过选择距离簇中心最近的样本来体现簇的典型特征。可调整每簇展示的样本数量，便于快速了解各簇的视觉特征。',
+                           style={'fontSize': '12px', 'color': '#555', 'lineHeight': '1.6', 'margin': '0'}),
+                ], style={'padding': '12px 14px', 'backgroundColor': '#e1f5fe', 'border': '1px solid #81d4fa',
+                         'borderRadius': '8px', 'marginBottom': '12px'}),
+
                 html.Div([
                     html.Label('每簇展示张数'),
                     dcc.Slider(

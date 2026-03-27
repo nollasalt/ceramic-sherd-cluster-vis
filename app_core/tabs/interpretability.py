@@ -18,6 +18,14 @@ def build_interpretability_tab():
         children=[
             html.Div([
 
+                # ── 使用说明 ───────────────────────────────────────────────────
+                html.Div([
+                    html.P('📖 使用说明', style={'fontWeight': '600', 'fontSize': '13px', 'marginBottom': '8px', 'color': '#2c3e50'}),
+                    html.P('本页面通过分析图像特征，帮助理解每个簇的聚类依据。选择一个簇后，系统会展示该簇的装饰技法、颜色、部位分布，以及基于GLCM纹理分析推断的装饰类型和聚类主要决定因素。',
+                           style={'fontSize': '12px', 'color': '#555', 'lineHeight': '1.6', 'margin': '0'}),
+                ], style={'padding': '12px 14px', 'backgroundColor': '#f0f8ff', 'border': '1px solid #d0e8ff',
+                         'borderRadius': '8px', 'marginBottom': '12px'}),
+
                 # ── 控制区 ─────────────────────────────────────────────────
                 html.Div([
                     html.Div([

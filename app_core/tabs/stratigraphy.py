@@ -20,6 +20,13 @@ def build_stratigraphy_tab():
         value='stratigraphy',
         children=[
             html.Div([
+                # ── 使用说明 ───────────────────────────────────────────────────
+                html.Div([
+                    html.P('📖 使用说明', style={'fontWeight': '600', 'fontSize': '13px', 'marginBottom': '8px', 'color': '#2c3e50'}),
+                    html.P('本页面展示器物群（簇）在不同地层中的流动与分布。Sankey图直观显示从地层到簇的流向，热力图展示簇的跨层分布模式，帮助识别贯穿多层的长期使用器物群和集中于单层的特定事件器物群。统计摘要提供各层多样性和簇持续性指标。',
+                           style={'fontSize': '12px', 'color': '#555', 'lineHeight': '1.6', 'margin': '0'}),
+                ], style={'padding': '12px 14px', 'backgroundColor': '#e0f7fa', 'border': '1px solid #80deea',
+                         'borderRadius': '8px', 'marginBottom': '12px'}),
 
                 # ── 控制区 ─────────────────────────────────────────────────
                 html.Div([
