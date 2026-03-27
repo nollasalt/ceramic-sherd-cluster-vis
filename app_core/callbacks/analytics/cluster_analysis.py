@@ -35,7 +35,7 @@ def build_cluster_pattern_insights(dff, cluster_col, feature_cols, selected_clus
     best_field_purity = {}
     for field in cat_fields:
         per_cluster = {}
-        for cid, grp in dff[[cluster_col, field]].dropna().groupby(cluster_col):
+        for cid, grp in dff[[cluster_col, field]].dropna().groupby(cluster_col, observed=True):
             vc = grp[field].value_counts(normalize=True)
             if len(vc) > 0:
                 per_cluster[cid] = (float(vc.iloc[0]), str(vc.index[0]))
@@ -62,7 +62,7 @@ def build_cluster_pattern_insights(dff, cluster_col, feature_cols, selected_clus
     if feature_cols and len(clusters) >= 2:
         work = dff.dropna(subset=feature_cols)
         if len(work) >= 2:
-            centers_df = work.groupby(cluster_col)[feature_cols].mean()
+            centers_df = work.groupby(cluster_col, observed=True)[feature_cols].mean()
             if len(centers_df) >= 2:
                 centers = centers_df.values
                 center_ids = centers_df.index.to_list()
@@ -203,7 +203,7 @@ def register_cluster_analysis_callbacks(app):
 
         purity_data = {}
         if purity_field:
-            grp = dff[[cluster_col, purity_field]].dropna().groupby(cluster_col)[purity_field]
+            grp = dff[[cluster_col, purity_field]].dropna().groupby(cluster_col, observed=True)[purity_field]
             for cid, series in grp:
                 vc = series.value_counts(normalize=True)
                 purity = float(vc.iloc[0]) if len(vc) > 0 else np.nan

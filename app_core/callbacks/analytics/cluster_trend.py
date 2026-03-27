@@ -69,6 +69,34 @@ def register_cluster_trend_callbacks(app):
 
         return unit_opts, cluster_opts
 
+    # ── 快捷筛选按钮 ───────────────────────────────────────────────────
+    @app.callback(
+        Output('trend-unit-filter', 'value'),
+        Input('trend-unit-select-all', 'n_clicks'),
+        Input('trend-unit-clear', 'n_clicks'),
+        Input('trend-unit-main', 'n_clicks'),
+        State('trend-unit-filter', 'options'),
+        prevent_initial_call=True,
+    )
+    def handle_unit_shortcuts(n_all, n_clear, n_main, options):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            return dash.no_update
+
+        button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+        if button_id == 'trend-unit-select-all':
+            return [opt['value'] for opt in options]
+        elif button_id == 'trend-unit-clear':
+            return []
+        elif button_id == 'trend-unit-main':
+            # 仅主要层：排除包含"混"、"扰"等关键字的层位
+            exclude_keywords = ['混', '扰', '乱']
+            return [opt['value'] for opt in options
+                    if not any(kw in str(opt['value']) for kw in exclude_keywords)]
+
+        return dash.no_update
+
     # ── 主渲染回调 ─────────────────────────────────────────────────────────
     @app.callback(
         Output('cluster-trend-chart', 'figure'),
@@ -111,12 +139,12 @@ def register_cluster_trend_callbacks(app):
 
         # ── 构建 layer × cluster 计数矩阵 ────────────────────────────────
         pivot = (
-            dff.groupby(['unit_C', cluster_col])
+            dff.groupby(['unit_C', cluster_col], observed=True)
             .size()
             .reset_index(name='count')
         )
         matrix = pivot.pivot_table(
-            index='unit_C', columns=cluster_col, values='count', fill_value=0
+            index='unit_C', columns=cluster_col, values='count', fill_value=0, observed=True
         )
         layers_sorted = _sorted_layers(matrix.index.tolist())
         matrix = matrix.reindex(layers_sorted)
@@ -126,7 +154,7 @@ def register_cluster_trend_callbacks(app):
         x_labels = [str(lyr) for lyr in layers_sorted]
 
         # 层总量（用于按层归一化）
-        layer_totals = dff.groupby('unit_C').size().reindex(layers_sorted, fill_value=0)
+        layer_totals = dff.groupby('unit_C', observed=True).size().reindex(layers_sorted, fill_value=0)
 
         min_layers = int(min_layers or 2)
         type_filter = set(type_filter or list(_TYPE_META.keys()))
@@ -206,7 +234,7 @@ def register_cluster_trend_callbacks(app):
 
             # 实线：实际占比
             fig.add_trace(go.Scatter(
-                x=x_labels,
+                x=x_indices,
                 y=s['ys'],
                 mode='lines+markers',
                 name=f'簇{cid} [{meta["label"]}]',
@@ -219,7 +247,7 @@ def register_cluster_trend_callbacks(app):
 
             # 虚线：趋势线
             fig.add_trace(go.Scatter(
-                x=x_labels,
+                x=x_indices,
                 y=s['trend_y'],
                 mode='lines',
                 name=f'簇{cid} 趋势',
@@ -237,7 +265,14 @@ def register_cluster_trend_callbacks(app):
 
         fig.update_layout(
             title=title_txt,
-            xaxis=dict(title='地层层位（左=新，右=老）', tickangle=-30),
+            xaxis=dict(
+                title='地层层位（左=新，右=老）',
+                tickangle=-30,
+                tickmode='array',
+                tickvals=x_indices,
+                ticktext=x_labels,
+                range=[-0.5, len(x_indices) - 0.5],
+            ),
             yaxis=dict(title=y_axis_title, tickformat='.1%' if y_mode == 'by_layer' else ''),
             legend=dict(
                 orientation='v', x=1.01, y=1,

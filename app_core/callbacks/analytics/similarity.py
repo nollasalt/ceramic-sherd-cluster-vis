@@ -65,7 +65,7 @@ def register_similarity_callbacks(app):
             fig = px.imshow([[0]], title='暂无数据')
             return fig, ""
 
-        centers_df = dff.groupby(cluster_col)[feature_cols].mean()
+        centers_df = dff.groupby(cluster_col, observed=True)[feature_cols].mean()
         clusters = centers_df.index.to_numpy()
         centers = centers_df.values
 

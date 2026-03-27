@@ -100,7 +100,7 @@ def register_part_analysis_callbacks(app):
         clusters_order = sorted(work[cluster_col].unique(), key=lambda x: int(x) if x.isdigit() else x)
 
         pivot = (
-            work.groupby(['part_C', cluster_col])
+            work.groupby(['part_C', cluster_col], observed=True)
             .size()
             .unstack(fill_value=0)
             .reindex(index=parts_order, columns=clusters_order, fill_value=0)

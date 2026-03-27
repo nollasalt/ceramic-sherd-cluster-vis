@@ -19,6 +19,7 @@ from app_core.tabs.type_validation import build_type_validation_tab
 from app_core.tabs.part_analysis import build_part_analysis_tab
 from app_core.tabs.cluster_trend import build_cluster_trend_tab
 from app_core.tabs.cluster_network import build_cluster_network_tab
+from app_core.tabs.interpretability import build_interpretability_tab
 
 
 def _group_tab(value, label):
@@ -175,6 +176,7 @@ def build_layout(
                 build_type_validation_tab(),
                 build_part_analysis_tab(),
                 build_cluster_analysis_tab(),
+                build_interpretability_tab(),
                 # ── 地层分析 ───────────────────────────────────
                 _group_tab('group-stratigraphy', '地层分析'),
                 build_stratigraphy_tab(),

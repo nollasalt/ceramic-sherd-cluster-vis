@@ -128,7 +128,7 @@ def register_cluster_quality_callbacks(app):
         except Exception:
             sil_per_cluster = {}
 
-        centers_df = dff.groupby(cluster_col)[feature_cols].mean()
+        centers_df = dff.groupby(cluster_col, observed=True)[feature_cols].mean()
         centers = centers_df.values
         center_ids = centers_df.index.to_numpy()
         inter_min = {}
@@ -141,7 +141,7 @@ def register_cluster_quality_callbacks(app):
                 inter_min[cid] = float(np.min(dist_mat[i][mask])) if np.any(mask) else np.nan
 
         intra_mean = {}
-        for cid, group in dff.groupby(cluster_col):
+        for cid, group in dff.groupby(cluster_col, observed=True):
             if len(group) == 0:
                 intra_mean[cid] = np.nan
                 continue

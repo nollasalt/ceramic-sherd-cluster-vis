@@ -123,7 +123,7 @@ def register_stratigraphy_callbacks(app):
 
         # 构建层位 × 簇计数矩阵
         pivot = (
-            dff.groupby(['unit_C', cluster_col])
+            dff.groupby(['unit_C', cluster_col], observed=True)
             .size()
             .reset_index(name='count')
         )

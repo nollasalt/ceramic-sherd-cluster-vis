@@ -62,7 +62,7 @@ def register_category_breakdown_callbacks(app):
 
         grouped = (
             dff
-            .groupby([x_field, category_field])
+            .groupby([x_field, category_field], observed=True)
             .size()
             .reset_index(name='count')
         )

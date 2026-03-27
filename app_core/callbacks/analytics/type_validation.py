@@ -139,7 +139,7 @@ def register_type_validation_callbacks(app):
         work_top[cluster_col] = work_top[cluster_col].astype(str)
         clusters_in_top = sorted(work_top[cluster_col].unique(), key=lambda x: int(x) if x.isdigit() else x)
         pivot = (
-            work_top.groupby(['type_C', cluster_col])
+            work_top.groupby(['type_C', cluster_col], observed=True)
             .size()
             .unstack(fill_value=0)
             .reindex(columns=clusters_in_top, fill_value=0)

@@ -352,7 +352,7 @@ def register_borderline_callbacks(app, *, image_root):
             pair_counts = {}
         else:
             _pair_df = pd.DataFrame({'ca': np.minimum(_a, _b), 'cb': np.maximum(_a, _b)})
-            pair_counts = dict(_pair_df.groupby(['ca', 'cb']).size())
+            pair_counts = dict(_pair_df.groupby(['ca', 'cb'], observed=True).size())
 
         if not pair_counts:
             pair_stats_div = html.Div(

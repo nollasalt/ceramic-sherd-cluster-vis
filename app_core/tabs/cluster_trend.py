@@ -30,6 +30,14 @@ def build_cluster_trend_tab():
                             multi=True,
                             placeholder='默认全部层位',
                         ),
+                        html.Div([
+                            html.Button('全选', id='trend-unit-select-all', n_clicks=0,
+                                       style={'fontSize': '11px', 'padding': '2px 8px', 'marginRight': '4px'}),
+                            html.Button('清空', id='trend-unit-clear', n_clicks=0,
+                                       style={'fontSize': '11px', 'padding': '2px 8px', 'marginRight': '4px'}),
+                            html.Button('仅主要层', id='trend-unit-main', n_clicks=0,
+                                       style={'fontSize': '11px', 'padding': '2px 8px'}),
+                        ], style={'marginTop': '4px'}),
                     ], style={'flex': '2', 'minWidth': '180px'}),
 
                     html.Div([

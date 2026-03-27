@@ -27,7 +27,7 @@ def _build_cooc_matrix(df, cluster_col, sel_units=None):
 
     # 每个层位包含的簇集合
     unit_cluster_sets = (
-        dff.groupby('unit_C')[cluster_col]
+        dff.groupby('unit_C', observed=True)[cluster_col]
         .apply(lambda s: set(s.dropna().unique()))
         .to_dict()
     )

@@ -19,6 +19,7 @@ from .borderline import register_borderline_callbacks
 from .part_analysis import register_part_analysis_callbacks
 from .cluster_trend import register_cluster_trend_callbacks
 from .cluster_network import register_cluster_network_callbacks
+from .interpretability import register_interpretability_callbacks
 
 
 def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
@@ -50,4 +51,5 @@ def register_analytics_callbacks(app, *, image_root, image_search_dirs=None):
     register_part_analysis_callbacks(app)
     register_cluster_trend_callbacks(app)
     register_cluster_network_callbacks(app)
+    register_interpretability_callbacks(app, image_root=image_root)
     return app
