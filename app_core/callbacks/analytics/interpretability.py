@@ -134,6 +134,8 @@ def register_interpretability_callbacks(app, image_root=None):
         cols_to_include = ['sample_id', cluster_col] + feature_cols
         if 'part_C' in df.columns:
             cols_to_include.append('part_C')
+        if 'unit_C' in df.columns:
+            cols_to_include.append('unit_C')
         work = df[cols_to_include].dropna(subset=[cluster_col]).copy()
 
         cluster_mask = work[cluster_col] == selected_cluster
@@ -154,6 +156,7 @@ def register_interpretability_callbacks(app, image_root=None):
         # 初始化变量
         distribution_analysis = None
         part_distribution = {}
+        unit_distribution = {}
 
         # 分析部位分布（不依赖图像）
         cluster_df = work[work[cluster_col] == selected_cluster]
@@ -163,6 +166,11 @@ def register_interpretability_callbacks(app, image_root=None):
             print(f"[DEBUG] 部位分布: {part_distribution}")
         else:
             print(f"[DEBUG] 数据中没有 part_C 列，可用列: {cluster_df.columns.tolist()}")
+
+        # 分析地层分布
+        if 'unit_C' in cluster_df.columns:
+            unit_counts = cluster_df['unit_C'].value_counts()
+            unit_distribution = {k: int(v) for k, v in unit_counts.items()}
 
         # 提取视觉特征和分布分析
         if image_root:
@@ -315,9 +323,9 @@ def register_interpretability_callbacks(app, image_root=None):
         from plotly.subplots import make_subplots
 
         dist_fig = make_subplots(
-            rows=1, cols=3,
-            subplot_titles=('装饰技法分布', '颜色分布', '部位分布'),
-            specs=[[{'type': 'pie'}, {'type': 'pie'}, {'type': 'pie'}]]
+            rows=1, cols=4,
+            subplot_titles=('装饰技法分布', '颜色分布', '部位分布', '地层分布'),
+            specs=[[{'type': 'pie'}, {'type': 'pie'}, {'type': 'pie'}, {'type': 'pie'}]]
         )
 
         if distribution_analysis:
@@ -355,6 +363,24 @@ def register_interpretability_callbacks(app, image_root=None):
                 go.Pie(labels=list(part_dist_display.keys()), values=list(part_dist_display.values()),
                        name='部位', hole=0.3),
                 row=1, col=3
+            )
+
+        # 地层分布（只显示Top-5，其他合并）
+        if unit_distribution:
+            sorted_units = sorted(unit_distribution.items(), key=lambda x: x[1], reverse=True)
+            if len(sorted_units) > 5:
+                top5 = dict(sorted_units[:5])
+                other_count = sum(v for k, v in sorted_units[5:])
+                if other_count > 0:
+                    top5['其他'] = other_count
+                unit_dist_display = top5
+            else:
+                unit_dist_display = unit_distribution
+
+            dist_fig.add_trace(
+                go.Pie(labels=list(unit_dist_display.keys()), values=list(unit_dist_display.values()),
+                       name='地层', hole=0.3),
+                row=1, col=4
             )
 
         dist_fig.update_layout(
