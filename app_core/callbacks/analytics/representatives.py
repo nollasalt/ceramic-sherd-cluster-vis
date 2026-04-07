@@ -12,6 +12,20 @@ from app_core.data_cache import get_data_cache
 def register_representatives_callbacks(app, *, image_root):
     base_root = Path(__file__).parent.parent.parent.parent
 
+    app.clientside_callback(
+        """
+        function() {
+            function getSize() {
+                return {w: window.innerWidth || 1200, h: window.innerHeight || 800};
+            }
+            window.addEventListener('resize', function() {});
+            return getSize();
+        }
+        """,
+        Output('window-width-store', 'data'),
+        Input('visualization-tabs', 'value'),
+    )
+
     image_root_abs = Path(image_root)
     if not image_root_abs.is_absolute():
         image_root_abs = base_root / image_root_abs
@@ -45,7 +59,8 @@ def register_representatives_callbacks(app, *, image_root):
          Input('cluster-filter', 'value'),
          Input('unit-filter', 'value'),
          Input('part-filter', 'value'),
-         Input('type-filter', 'value')],
+         Input('type-filter', 'value'),
+         Input('window-width-store', 'data')],
         State('rep-page-index', 'data'),
         State('data-store', 'data')
     )
@@ -53,13 +68,23 @@ def register_representatives_callbacks(app, *, image_root):
         tab_value, samples_per_cluster, strategy,
         prev_clicks, next_clicks,
         selected_clusters, selected_units, selected_parts, selected_types,
-        page_index, data_store,
+        window_width, page_index, data_store,
     ):
         """渲染代表样本，支持分页增量加载簇。图像通过 /img/ 路由直接请求，不再 base64 编码。"""
         if tab_value != 'representatives':
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
-        page_size = 8
+        n_per = max(1, min(12, int(samples_per_cluster or 1)))
+        # 根据窗口宽度动态计算每页显示的簇数
+        w = int((window_width or {}).get('w', 1200))
+        h = int((window_width or {}).get('h', 800))
+        available_w = max(400, w - 220)
+        available_h = max(300, h - 280)   # 标题栏+顶部控制栏+分页栏约280px
+        card_w = n_per * 126 + 52
+        card_h = 120 + 56                  # 缩略图高度 + 卡片标题/padding
+        cols = max(1, (available_w + 12) // (card_w + 12))
+        rows = max(1, available_h // (card_h + 12))
+        page_size = cols * rows
         page_index = max(1, int(page_index or 1))
 
         data_cache = get_data_cache()
@@ -106,7 +131,6 @@ def register_representatives_callbacks(app, *, image_root):
         if len(active_clusters) == 0:
             return _empty, 1, '第 0/0 页（0 个簇）', True, True
 
-        n_per = max(1, min(12, int(samples_per_cluster or 1)))
         thumb_size = 120
         cards = []
 

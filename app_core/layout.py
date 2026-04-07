@@ -227,6 +227,7 @@ def build_layout(
         dcc.Store(id='last-selected-store', data={}),
         dcc.Store(id='hover-state', data={'hovered_cluster': None}),
         dcc.Store(id='rep-last-view-click', data={'cluster': None, 'count': 0}),
+        dcc.Store(id='window-width-store', data={'w': 1200, 'h': 800}),
         dcc.Store(id='sample-cluster-mapping', data=df.set_index('sample_id')[cluster_col].to_dict()),
         build_modal()
     ], style={'margin': '8px', 'padding': '0'})
