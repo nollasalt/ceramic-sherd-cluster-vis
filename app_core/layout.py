@@ -144,46 +144,105 @@ def build_layout(
             ], className='top-control-group'),
         ], className='top-control-bar'),
 
-        dcc.Tabs(
-            id='visualization-tabs',
-            value='representatives',
-            vertical=True,
-            parent_className='sidebar-nav',
-            children=[
-                # ── 总览 ──────────────────────────────────────
-                _group_tab('group-overview', '总览'),
-                build_help_tab(),
-                build_representatives_tab(),
-                build_borderline_tab(),
-                build_scatter_tab(
-                    fig=fig,
-                    clusters=clusters,
-                    init_unit_options=init_unit_options,
-                    init_part_options=init_part_options,
-                    init_type_options=init_type_options,
-                    algorithm_options=algorithm_options,
+        # ── 主内容区：左侧标签页 + 右侧簇预览面板 ──────────────────────────
+        html.Div([
+            # 左侧：标签页内容
+            html.Div([
+                dcc.Tabs(
+                    id='visualization-tabs',
+                    value='representatives',
+                    vertical=True,
+                    parent_className='sidebar-nav',
+                    children=[
+                        # ── 总览 ──────────────────────────────────────
+                        _group_tab('group-overview', '总览'),
+                        build_help_tab(),
+                        build_representatives_tab(),
+                        build_borderline_tab(),
+                        build_scatter_tab(
+                            fig=fig,
+                            clusters=clusters,
+                            init_unit_options=init_unit_options,
+                            init_part_options=init_part_options,
+                            init_type_options=init_type_options,
+                            algorithm_options=algorithm_options,
+                        ),
+                        # ── 质量评估 ───────────────────────────────────
+                        _group_tab('group-quality', '质量评估'),
+                        build_cluster_size_tab(),
+                        build_cluster_quality_tab(),
+                        build_heatmap_tab(),
+                        build_similarity_tab(),
+                        build_cluster_network_tab(),
+                        # ── 构成分析 ───────────────────────────────────
+                        _group_tab('group-analysis', '构成分析'),
+                        build_category_breakdown_tab(),
+                        build_type_validation_tab(),
+                        build_part_analysis_tab(),
+                        build_cluster_analysis_tab(),
+                        build_interpretability_tab(),
+                        # ── 地层分析 ───────────────────────────────────
+                        _group_tab('group-stratigraphy', '地层分析'),
+                        build_stratigraphy_tab(),
+                        build_cluster_trend_tab(),
+                        build_cooccurrence_tab(),
+                    ],
                 ),
-                # ── 质量评估 ───────────────────────────────────
-                _group_tab('group-quality', '质量评估'),
-                build_cluster_size_tab(),
-                build_cluster_quality_tab(),
-                build_heatmap_tab(),
-                build_similarity_tab(),
-                build_cluster_network_tab(),
-                # ── 构成分析 ───────────────────────────────────
-                _group_tab('group-analysis', '构成分析'),
-                build_category_breakdown_tab(),
-                build_type_validation_tab(),
-                build_part_analysis_tab(),
-                build_cluster_analysis_tab(),
-                build_interpretability_tab(),
-                # ── 地层分析 ───────────────────────────────────
-                _group_tab('group-stratigraphy', '地层分析'),
-                build_stratigraphy_tab(),
-                build_cluster_trend_tab(),
-                build_cooccurrence_tab(),
-            ],
-        ),
+            ], style={'flex': '1', 'minWidth': '0'}),
+
+            # 右侧：簇预览面板
+            html.Div([
+                html.Div([
+                    html.Div('簇预览', style={'fontSize': '14px', 'fontWeight': '600', 'marginBottom': '8px'}),
+                    html.Div([
+                        html.Label('选择簇:', style={'fontSize': '12px', 'marginRight': '6px'}),
+                        dcc.Dropdown(
+                            id='cluster-preview-selector',
+                            options=[{'label': f'簇 {c}', 'value': c} for c in clusters],
+                            placeholder='选择一个簇',
+                            style={'width': '140px', 'fontSize': '12px'},
+                        ),
+                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '8px'}),
+                    html.Div([
+                        html.Label('每页显示:', style={'fontSize': '12px', 'marginRight': '6px'}),
+                        dcc.Dropdown(
+                            id='cluster-preview-pagesize',
+                            options=[{'label': str(n), 'value': n} for n in [6, 12, 18, 24]],
+                            value=12,
+                            clearable=False,
+                            style={'width': '80px', 'fontSize': '12px'},
+                        ),
+                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '8px'}),
+                ], style={'padding': '10px', 'borderBottom': '1px solid #e0e0e0'}),
+
+                dcc.Loading(
+                    id='cluster-preview-loading',
+                    type='default',
+                    children=html.Div(id='cluster-preview-content', style={
+                        'overflowY': 'auto',
+                        'height': 'calc(100vh - 280px)',
+                        'padding': '8px',
+                    }),
+                ),
+
+                html.Div([
+                    html.Button('上一页', id='cluster-preview-prev', n_clicks=0,
+                               style={'fontSize': '11px', 'padding': '4px 10px'}),
+                    html.Span(id='cluster-preview-page-info', style={'fontSize': '11px', 'color': '#666'}),
+                    html.Button('下一页', id='cluster-preview-next', n_clicks=0,
+                               style={'fontSize': '11px', 'padding': '4px 10px'}),
+                ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center',
+                         'padding': '8px', 'borderTop': '1px solid #e0e0e0'}),
+
+                dcc.Store(id='cluster-preview-page', data=1),
+            ], style={
+                'width': '280px',
+                'borderLeft': '1px solid #ddd',
+                'backgroundColor': '#fafafa',
+                'display': 'flex',
+                'flexDirection': 'column',
+            }),
+        ], style={'display': 'flex', 'height': 'calc(100vh - 120px)'}),
         html.Div(id='sample-panel', style={'marginTop': '12px', 'minHeight': '220px', 'borderTop': '1px solid #ddd', 'paddingTop': '8px'}),
         html.Div(id='selected-meta'),
         html.Div([

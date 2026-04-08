@@ -14,6 +14,7 @@ from flask import jsonify, request
 from app_core.callbacks import (
     register_analytics_callbacks,
     register_cluster_panel_callbacks,
+    register_cluster_preview_callbacks,
     register_compare_callbacks,
     register_recluster_callbacks,
     register_scatter_callbacks,
@@ -297,6 +298,7 @@ def create_app():
     register_scatter_callbacks(app, csv_path=DATA_CSV, image_root=IMAGE_ROOT, get_filter_options=get_filter_options)
     register_compare_callbacks(app)
     register_cluster_panel_callbacks(app)
+    register_cluster_preview_callbacks(app, image_root=IMAGE_ROOT)
     register_analytics_callbacks(app, image_root=IMAGE_ROOT, image_search_dirs=IMAGE_SEARCH_DIRS)
     register_recluster_callbacks(app, features_csv=FEATURES_CSV, image_root=IMAGE_ROOT)
 
