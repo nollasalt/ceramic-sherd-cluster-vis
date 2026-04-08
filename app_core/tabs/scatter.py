@@ -1,6 +1,6 @@
 """散点图标签页布局定义。"""
 
-from dash import dcc, html
+from dash import dcc, html, clientside_callback, Input, Output
 
 
 def build_scatter_tab(fig, clusters, init_unit_options, init_part_options, init_type_options, algorithm_options):
@@ -34,7 +34,7 @@ def build_scatter_tab(fig, clusters, init_unit_options, init_part_options, init_
                         options=[{'label': '降维结果', 'value': 'dimension'}, {'label': 'unit_C', 'value': 'unit_C'}],
                         value='dimension',
                     ),
-                ], style={'width': '220px'}),
+                ], id='z-axis-group', style={'width': '220px', 'display': 'none'}),
             ], style={'marginBottom': '8px', 'display': 'flex', 'flexWrap': 'wrap', 'gap': '8px 12px', 'alignItems': 'flex-end'}),
             html.Div([
                 html.Div([
@@ -89,3 +89,9 @@ def build_scatter_tab(fig, clusters, init_unit_options, init_part_options, init_
             html.Span('（先点击散点图选中样本，再添加到比较）', style={'marginLeft': '10px', 'color': '#666'}),
         ], style={'display': 'flex', 'alignItems': 'center', 'gap': '10px', 'marginTop': '8px', 'marginBottom': '8px'}),
     ])
+
+clientside_callback(
+    "function(dim) { return dim === 3 ? {'width': '220px', 'display': 'block'} : {'display': 'none'}; }",
+    Output('z-axis-group', 'style'),
+    Input('dimension-selector', 'value'),
+)

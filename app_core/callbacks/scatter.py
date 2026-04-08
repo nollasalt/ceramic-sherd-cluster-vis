@@ -244,27 +244,29 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
             )
         else:
             if z_axis == 'unit_C' and 'unit_C' in dff.columns:
-                circle_to_num = {
-                    '①': 1, '②': 2, '③': 3, '④': 4, '⑤': 5,
-                    '⑥': 6, '⑦': 7, '⑧': 8, '⑨': 9, '⑩': 10,
-                    '⑪': 11, '⑫': 12, '⑬': 13, '⑭': 14, '⑮': 15,
-                    '⑯': 16, '⑰': 17, '⑱': 18, '⑲': 19, '⑳': 20,
-                    '㉑': 21, '㉒': 22, '㉓': 23, '㉔': 24, '㉕': 25,
-                    '㉖': 26, '㉗': 27, '㉘': 28, '㉙': 29, '㉚': 30
-                }
+                import unicodedata
+
+                def unit_sort_key(s):
+                    if not isinstance(s, str):
+                        return (9999, s or '')
+                    for ch in s:
+                        cp = ord(ch)
+                        if 0x2460 <= cp <= 0x2473:
+                            return (cp - 0x2460 + 1, s)
+                        if 0x3251 <= cp <= 0x325A:
+                            return (cp - 0x3251 + 21, s)
+                    return (9998, s)
 
                 dff = dff.copy()
-                dff['h690_num'] = dff['unit_C'].apply(
-                    lambda x: circle_to_num.get(x[4:], 0)
-                    if isinstance(x, str) and x.startswith('H690') and len(x) > 4
-                    else 0
-                )
+                units_sorted = sorted(dff['unit_C'].dropna().unique(), key=unit_sort_key)
+                unit_rank = {u: i for i, u in enumerate(units_sorted)}
+                dff['_unit_z'] = dff['unit_C'].astype(str).map(unit_rank).fillna(-1).astype(int)
 
                 fig = px.scatter_3d(
                     dff,
                     x=f'{reduction_key}_0',
                     y=f'{reduction_key}_1',
-                    z='h690_num',
+                    z='_unit_z',
                     color=dff[cluster_col].astype(str),
                     hover_data=hover_cols + ['unit_C'],
                     custom_data=custom,
@@ -272,7 +274,13 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
                     color_discrete_sequence=CLUSTER_COLORS,
                     **symbol_kwargs_3d,
                 )
-                fig.update_layout(scene=dict(zaxis=dict(title='H690序号')))
+                tickvals = list(range(len(units_sorted)))
+                ticktext = [str(u) for u in units_sorted]
+                fig.update_layout(scene=dict(zaxis=dict(
+                    title='地层',
+                    tickvals=tickvals,
+                    ticktext=ticktext,
+                )))
                 fig.update_traces(marker={'size': 1})
             else:
                 df, reduction_key_3d = ensure_dimensionality_reduction(

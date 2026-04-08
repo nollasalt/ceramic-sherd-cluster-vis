@@ -167,10 +167,13 @@ def register_cluster_quality_callbacks(app):
             """根据松散度与轮廓系数返回风险颜色。"""
             if pd.isna(looseness):
                 return '#cccccc'
+            # 绿色：松散度低且轮廓系数好
             if looseness < 0.3 and (pd.isna(sil) or sil >= 0.2):
                 return '#4caf50'
-            if looseness < 0.6 or (not pd.isna(sil) and sil >= 0.0):
+            # 黄色：松散度中等且轮廓系数不太差
+            if looseness < 0.6 and (pd.isna(sil) or sil >= 0.0):
                 return '#ffb300'
+            # 红色：松散度高或轮廓系数差
             return '#e53935'
 
         detail_df['status_color'] = detail_df.apply(lambda r: status_color(r['looseness'], r['silhouette']), axis=1)
