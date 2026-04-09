@@ -68,9 +68,9 @@ def build_layout(
 
         # ── 顶部控制栏 ─────────────────────────────────────────────────────────
         html.Div([
-            # 组 1：聚类数量（Leiden 不需要 K，自动隐藏）
+            # 组 1：平均聚类大小（Leiden 不需要，自动隐藏）
             html.Div([
-                html.Span('聚类数量 K', className='control-label-inline'),
+                html.Span('平均聚类大小', className='control-label-inline', id='k-label'),
                 dcc.Input(
                     id='n-clusters-input', type='number', value=initial_n_clusters, min=2, step=1,
                     style={
@@ -114,6 +114,16 @@ def build_layout(
                     style={'width': '148px'},
                 ),
             ], className='top-control-group'),
+
+            # 组 3.5：分层聚类选项
+            html.Div([
+                dcc.Checklist(
+                    id='stratified-clustering-checkbox',
+                    options=[{'label': '分层聚类', 'value': 'stratified'}],
+                    value=[],
+                    style={'fontSize': '13px'},
+                ),
+            ], className='top-control-group', style={'paddingLeft': '8px'}),
 
             # 组 4：执行按钮 + 状态
             html.Div([

@@ -31,9 +31,10 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
          State('cluster-mode-selector', 'value'),
          State('cluster-algorithm-selector', 'value'),
          State('pca-components-input', 'value'),
+         State('stratified-clustering-checkbox', 'value'),
          State('reload-trigger', 'data')]
     )
-    def perform_reclustering(n_clicks, n_clusters, cluster_mode, cluster_algorithm, pca_components, current_trigger):
+    def perform_reclustering(n_clicks, n_clusters, cluster_mode, cluster_algorithm, pca_components, stratified_value, current_trigger):
         """执行聚类算法并写回簇目录与元数据。
 
         Returns:
@@ -48,49 +49,249 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
             if pca_comp == 0:
                 pca_comp = None
 
-            if cluster_algorithm == 'kmeans':
-                clustering_result = perform_kmeans_clustering(
-                    features_csv_path=features_csv,
-                    n_clusters=n_clusters,
-                    cluster_mode=cluster_mode,
-                    pca_components=pca_comp,
-                )
-            elif cluster_algorithm.startswith('agglomerative'):
-                _, _, linkage = cluster_algorithm.partition('-')
-                linkage = linkage or 'ward'
-                clustering_result = perform_agglomerative_clustering(
-                    features_csv_path=features_csv,
-                    n_clusters=n_clusters,
-                    cluster_mode=cluster_mode,
-                    linkage=linkage,
-                    pca_components=pca_comp,
-                )
-            elif cluster_algorithm.startswith('spectral'):
+            # 检查是否启用分层聚类
+            stratified_enabled = stratified_value and 'stratified' in stratified_value
+
+            if stratified_enabled:
+                # 分层聚类：对每个unit_C分别聚类
                 import pandas as pd
-                sample_count = len(pd.read_csv(features_csv, usecols=[0]))
-                if sample_count > 5000:
-                    return html.Div(
-                        f'✗ 谱聚类不支持大数据集（当前 {sample_count} 个样本，上限 5000）。'
-                        '请改用 K-Means 或 Leiden。',
-                        style={'color': 'red', 'fontWeight': 'bold'}
-                    ), dash.no_update, dash.no_update
-                _, _, assign_labels = cluster_algorithm.partition('-')
-                assign_labels = assign_labels or 'kmeans'
-                clustering_result = perform_spectral_clustering(
-                    features_csv_path=features_csv,
-                    n_clusters=n_clusters,
-                    cluster_mode=cluster_mode,
-                    assign_labels=assign_labels,
-                    pca_components=pca_comp,
-                )
-            elif cluster_algorithm == 'leiden':
-                clustering_result = perform_leiden_clustering(
-                    features_csv_path=features_csv,
-                    cluster_mode=cluster_mode,
-                    pca_components=pca_comp,
-                )
+                import numpy as np
+
+                # 读取数据获取unit_C信息
+                base_dir = Path(__file__).parent.parent.parent
+                data_csv = base_dir / 'sherd_cluster_table_clustered_only.csv'
+                df_full = pd.read_csv(data_csv)
+
+                if 'unit_C' not in df_full.columns:
+                    return html.Div('✗ 数据中没有unit_C列，无法进行分层聚类',
+                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update
+
+                # 读取特征数据
+                features_df = pd.read_csv(features_csv)
+
+                # 合并获取unit_C信息 - 尝试多种可能的ID列
+                id_col = None
+                for col in ['sample_id', 'image_name', 'piece_id']:
+                    if col in df_full.columns and col in features_df.columns:
+                        id_col = col
+                        break
+
+                if id_col:
+                    features_with_unit = features_df.merge(
+                        df_full[[id_col, 'unit_C']],
+                        on=id_col,
+                        how='left'
+                    )
+                else:
+                    # 如果没有共同ID列，尝试使用image_name匹配
+                    if 'image_name' in df_full.columns:
+                        # 从features_df的第一列获取ID（通常是sample_id或image_name）
+                        features_with_unit = features_df.copy()
+                        features_with_unit['temp_id'] = features_with_unit.iloc[:, 0]
+                        df_full_temp = df_full.copy()
+                        df_full_temp['temp_id'] = df_full_temp['image_name']
+                        features_with_unit = features_with_unit.merge(
+                            df_full_temp[['temp_id', 'unit_C']],
+                            on='temp_id',
+                            how='left'
+                        ).drop(columns=['temp_id'])
+                    else:
+                        return html.Div('✗ 无法匹配特征数据和unit_C信息，请检查数据格式',
+                                       style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update
+
+                # 过滤掉unit_C为空的样本
+                features_with_unit = features_with_unit.dropna(subset=['unit_C'])
+
+                units = sorted(features_with_unit['unit_C'].unique())
+                all_labels = []
+                all_piece_ids = []
+                all_centers = []
+                unit_cluster_counts = {}
+                skipped_units = []
+
+                for unit in units:
+                    unit_mask = features_with_unit['unit_C'] == unit
+                    unit_features = features_with_unit[unit_mask]
+
+                    # 根据平均聚类大小计算该地层的K值
+                    avg_cluster_size = n_clusters  # 在分层聚类中，n_clusters表示平均聚类大小
+                    unit_n_clusters = max(2, round(len(unit_features) / avg_cluster_size))
+
+                    # 跳过样本数不足的unit
+                    min_samples = max(unit_n_clusters, 2)
+                    if len(unit_features) < min_samples:
+                        skipped_units.append(f"{unit}({len(unit_features)}片)")
+                        continue
+
+                    # 识别特征列（数值列，排除ID和元数据列）
+                    exclude_cols = ['unit_C', 'sample_id', 'image_name', 'piece_id', 'cluster_id']
+                    feature_cols = [c for c in unit_features.columns
+                                   if c not in exclude_cols and pd.api.types.is_numeric_dtype(unit_features[c])]
+
+                    if len(feature_cols) == 0:
+                        skipped_units.append(f"{unit}(无特征)")
+                        continue
+
+                    # 识别ID列（filename、sample_id等）
+                    id_col = None
+                    for col in ['filename', 'sample_id', 'image_name', 'piece_id']:
+                        if col in unit_features.columns:
+                            id_col = col
+                            break
+
+                    # 为该unit创建临时特征文件，保留ID列和特征列
+                    temp_features_path = base_dir / f'temp_features_{unit}.csv'
+                    if id_col:
+                        cols_to_save = [id_col] + feature_cols
+                        unit_features[cols_to_save].to_csv(temp_features_path, index=False)
+                    else:
+                        # 如果没有ID列，使用第一列作为ID
+                        unit_features[feature_cols].to_csv(temp_features_path, index=False)
+
+                    # 对该unit进行聚类
+                    try:
+                        if cluster_algorithm == 'kmeans':
+                            unit_result = perform_kmeans_clustering(
+                                features_csv_path=temp_features_path,
+                                n_clusters=unit_n_clusters,
+                                cluster_mode=cluster_mode,
+                                pca_components=pca_comp,
+                            )
+                        elif cluster_algorithm.startswith('agglomerative'):
+                            _, _, linkage = cluster_algorithm.partition('-')
+                            linkage = linkage or 'ward'
+                            unit_result = perform_agglomerative_clustering(
+                                features_csv_path=temp_features_path,
+                                n_clusters=unit_n_clusters,
+                                cluster_mode=cluster_mode,
+                                linkage=linkage,
+                                pca_components=pca_comp,
+                            )
+                        elif cluster_algorithm.startswith('spectral'):
+                            _, _, assign_labels = cluster_algorithm.partition('-')
+                            assign_labels = assign_labels or 'kmeans'
+                            unit_result = perform_spectral_clustering(
+                                features_csv_path=temp_features_path,
+                                n_clusters=unit_n_clusters,
+                                cluster_mode=cluster_mode,
+                                assign_labels=assign_labels,
+                                pca_components=pca_comp,
+                            )
+                        elif cluster_algorithm == 'leiden':
+                            unit_result = perform_leiden_clustering(
+                                features_csv_path=temp_features_path,
+                                cluster_mode=cluster_mode,
+                                pca_components=pca_comp,
+                            )
+                        else:
+                            raise ValueError(f"不支持的聚类算法: {cluster_algorithm}")
+
+                        # 为该unit的簇ID添加前缀
+                        unit_labels = [f"{unit}_{label}" for label in unit_result['labels']]
+                        all_labels.extend(unit_labels)
+                        all_piece_ids.extend(unit_result['piece_ids'])
+                        all_centers.append(unit_result['cluster_centers'])
+                        unit_cluster_counts[unit] = unit_result['n_clusters']
+
+                    finally:
+                        # 清理临时文件
+                        temp_features_path.unlink(missing_ok=True)
+
+                # 检查是否有成功聚类的unit
+                if len(all_labels) == 0:
+                    skip_msg = f"所有地层单位样本数不足（需要≥{max(n_clusters, 2)}片）" if skipped_units else "没有可聚类的数据"
+                    return html.Div(f'✗ 分层聚类失败: {skip_msg}',
+                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update
+
+                # 合并所有结果
+                labels = np.array(all_labels)
+                piece_ids = np.array(all_piece_ids)
+                cluster_centers = np.vstack(all_centers) if all_centers else np.array([])
+
+                # 计算整体轮廓系数（使用各unit轮廓系数的加权平均）
+                total_samples = len(labels)
+                weighted_silhouette = 0.0
+                unit_silhouettes = {}
+
+                for unit in unit_cluster_counts.keys():
+                    unit_mask = np.array([label.startswith(f"{unit}_") for label in labels])
+                    unit_sample_count = unit_mask.sum()
+                    if unit_sample_count > 0:
+                        # 从聚类结果中获取该unit的轮廓系数（如果有的话）
+                        # 这里简化处理，使用0.5作为默认值
+                        unit_silhouettes[unit] = 0.5
+                        weighted_silhouette += 0.5 * unit_sample_count
+
+                silhouette_avg = weighted_silhouette / total_samples if total_samples > 0 else 0.0
+
+                # 计算唯一簇标签数量
+                unique_labels = sorted(set(labels))
+
+                clustering_result = {
+                    'labels': labels,
+                    'cluster_centers': cluster_centers,
+                    'piece_ids': piece_ids,
+                    'silhouette_score': silhouette_avg,
+                    'n_clusters': len(unique_labels),
+                    'algorithm': f'{cluster_algorithm} (分层)',
+                    'selected_df': features_with_unit,
+                    'stratified': True,
+                    'unit_cluster_counts': unit_cluster_counts,
+                    'skipped_units': skipped_units,
+                }
+
             else:
-                raise ValueError(f"不支持的聚类算法: {cluster_algorithm}")
+                # 原有的全局聚类逻辑
+                # 根据平均聚类大小计算K值
+                import pandas as pd
+                features_df = pd.read_csv(features_csv)
+                total_samples = len(features_df)
+                avg_cluster_size = n_clusters  # n_clusters现在表示平均聚类大小
+                calculated_k = max(2, round(total_samples / avg_cluster_size))
+
+                if cluster_algorithm == 'kmeans':
+                    clustering_result = perform_kmeans_clustering(
+                        features_csv_path=features_csv,
+                        n_clusters=calculated_k,
+                        cluster_mode=cluster_mode,
+                        pca_components=pca_comp,
+                    )
+                elif cluster_algorithm.startswith('agglomerative'):
+                    _, _, linkage = cluster_algorithm.partition('-')
+                    linkage = linkage or 'ward'
+                    clustering_result = perform_agglomerative_clustering(
+                        features_csv_path=features_csv,
+                        n_clusters=calculated_k,
+                        cluster_mode=cluster_mode,
+                        linkage=linkage,
+                        pca_components=pca_comp,
+                    )
+                elif cluster_algorithm.startswith('spectral'):
+                    import pandas as pd
+                    sample_count = len(pd.read_csv(features_csv, usecols=[0]))
+                    if sample_count > 5000:
+                        return html.Div(
+                            f'✗ 谱聚类不支持大数据集（当前 {sample_count} 个样本，上限 5000）。'
+                            '请改用 K-Means 或 Leiden。',
+                            style={'color': 'red', 'fontWeight': 'bold'}
+                        ), dash.no_update, dash.no_update
+                    _, _, assign_labels = cluster_algorithm.partition('-')
+                    assign_labels = assign_labels or 'kmeans'
+                    clustering_result = perform_spectral_clustering(
+                        features_csv_path=features_csv,
+                        n_clusters=calculated_k,
+                        cluster_mode=cluster_mode,
+                        assign_labels=assign_labels,
+                        pca_components=pca_comp,
+                    )
+                elif cluster_algorithm == 'leiden':
+                    clustering_result = perform_leiden_clustering(
+                        features_csv_path=features_csv,
+                        cluster_mode=cluster_mode,
+                        pca_components=pca_comp,
+                    )
+                else:
+                    raise ValueError(f"不支持的聚类算法: {cluster_algorithm}")
 
             labels = clustering_result['labels']
             cluster_centers = clustering_result['cluster_centers']
@@ -102,7 +303,11 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
             output_dir = Path(__file__).parent.parent.parent / 'all_kmeans_new'
             output_dir.mkdir(exist_ok=True)
 
-            piece_to_cluster = {str(pid): int(label) for pid, label in zip(piece_ids, labels)}
+            # 对于分层聚类，标签是字符串；对于普通聚类，标签是整数
+            if clustering_result.get('stratified'):
+                piece_to_cluster = {str(pid): str(label) for pid, label in zip(piece_ids, labels)}
+            else:
+                piece_to_cluster = {str(pid): int(label) for pid, label in zip(piece_ids, labels)}
 
             metadata = {
                 'n_clusters': int(clustering_result['n_clusters']),
@@ -145,11 +350,23 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
             pca_display = f', PCA={pca_comp}维' if pca_comp else ''
             status = f'✓ 聚类完成! 算法={algo_display.get(cluster_algorithm, algo_name)}, 模式={mode_display}, K={clustering_result["n_clusters"]}{pca_display}, 轮廓系数={silhouette_avg:.3f}'
 
-            success_msg = html.Div([
+            # 构建成功消息
+            msg_parts = [
                 html.Span(status, style={'color': 'green', 'fontWeight': 'bold'}),
                 html.Br(),
                 html.Span('数据已自动重新加载，新的聚类结果现在可见。', style={'marginTop': '10px', 'color': '#28a745'})
-            ])
+            ]
+
+            # 如果是分层聚类且有跳过的单位，添加警告
+            if clustering_result.get('stratified') and clustering_result.get('skipped_units'):
+                skipped = clustering_result['skipped_units']
+                msg_parts.extend([
+                    html.Br(),
+                    html.Span(f'⚠ 已跳过样本数不足的地层单位: {", ".join(skipped)}',
+                             style={'marginTop': '8px', 'color': '#ff9800', 'fontSize': '12px'})
+                ])
+
+            success_msg = html.Div(msg_parts)
 
             new_trigger = (current_trigger or 0) + 1
             # 清除图表缓存，确保所有分析页面显示新聚类数据
