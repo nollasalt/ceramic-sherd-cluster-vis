@@ -20,6 +20,7 @@ from app_core.tabs.part_analysis import build_part_analysis_tab
 from app_core.tabs.cluster_trend import build_cluster_trend_tab
 from app_core.tabs.cluster_network import build_cluster_network_tab
 from app_core.tabs.interpretability import build_interpretability_tab
+from app_core.tabs.single_layer import build_single_layer_tab
 
 
 def _group_tab(value, label):
