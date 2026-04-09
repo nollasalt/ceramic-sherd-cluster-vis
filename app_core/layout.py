@@ -125,6 +125,23 @@ def build_layout(
                 ),
             ], className='top-control-group', style={'paddingLeft': '8px'}),
 
+            # 组 3.7：聚类范围
+            html.Div([
+                html.Span('范围', className='control-label-inline'),
+                dcc.Dropdown(
+                    id='cluster-scope-unit',
+                    options=[],
+                    placeholder='指定层（可选）',
+                    style={'width': '130px'},
+                ),
+                dcc.Dropdown(
+                    id='cluster-scope-part',
+                    options=[],
+                    placeholder='指定Part（可选）',
+                    style={'width': '130px'},
+                ),
+            ], className='top-control-group', style={'display': 'flex', 'alignItems': 'center', 'gap': '6px'}),
+
             # 组 4：执行按钮 + 状态
             html.Div([
                 html.Button('重新聚类', id='recluster-button', n_clicks=0, className='btn-primary'),
@@ -197,6 +214,7 @@ def build_layout(
                         build_stratigraphy_tab(),
                         build_cluster_trend_tab(),
                         build_cooccurrence_tab(),
+                        build_single_layer_tab(),
                     ],
                 ),
             ], style={'flex': '1', 'minWidth': '0'}),

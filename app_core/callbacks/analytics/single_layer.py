@@ -57,7 +57,6 @@ def register_single_layer_callbacks(app, *, image_root):
         Input('single-layer-selector', 'value'),
         State('data-store', 'data'),
     )
-    @cache_plot_result
     def render_single_layer(selected_layer, _):
         """渲染单层详情分析。"""
         if not selected_layer:
@@ -69,8 +68,8 @@ def register_single_layer_callbacks(app, *, image_root):
         image_col = data_cache['image_col']
         feature_cols = data_cache.get('feature_cols', [])
 
-        # 筛选该层数据
-        layer_df = df[df['unit_C'] == selected_layer].copy()
+        # 筛选该层数据（astype(str) 避免 Categorical 类型匹配失败）
+        layer_df = df[df['unit_C'].astype(str) == str(selected_layer)].copy()
         if len(layer_df) == 0:
             return html.Div(f'地层 {selected_layer} 无数据', style={'color': '#999', 'padding': '20px'})
 
@@ -115,7 +114,7 @@ def register_single_layer_callbacks(app, *, image_root):
                 all_clusters_in_range = set()
 
                 for unit in adjacent_layers:
-                    unit_df = df[df['unit_C'] == unit]
+                    unit_df = df[df['unit_C'].astype(str) == str(unit)]
                     unit_counts = unit_df[cluster_col].value_counts()
                     layer_data[unit] = unit_counts
                     all_clusters_in_range.update(unit_counts.index)
@@ -149,7 +148,7 @@ def register_single_layer_callbacks(app, *, image_root):
         sample_cards = []
 
         for c in clusters:
-            cluster_df = layer_df[layer_df[cluster_col] == c]
+            cluster_df = layer_df[layer_df[cluster_col].astype(str) == str(c)]
 
             # 选择代表样本（距中心最近）
             if feature_cols and len(cluster_df) > 0:
@@ -197,7 +196,7 @@ def register_single_layer_callbacks(app, *, image_root):
             # 计算各簇中心
             centers = []
             for c in clusters:
-                cluster_feat = layer_df[layer_df[cluster_col] == c].dropna(subset=feature_cols)
+                cluster_feat = layer_df[layer_df[cluster_col].astype(str) == str(c)].dropna(subset=feature_cols)
                 if len(cluster_feat) > 0:
                     centers.append(cluster_feat[feature_cols].mean().values)
                 else:

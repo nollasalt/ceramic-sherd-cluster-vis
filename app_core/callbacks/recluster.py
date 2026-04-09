@@ -22,6 +22,29 @@ from data_processing import (
 def register_recluster_callbacks(app, *, features_csv, image_root):
     """注册重新聚类回调。"""
 
+    # ── 初始化聚类范围选项 ──────────────────────────────────────────────────
+    @app.callback(
+        Output('cluster-scope-unit', 'options'),
+        Output('cluster-scope-part', 'options'),
+        Output('cluster-scope-unit', 'value'),
+        Output('cluster-scope-part', 'value'),
+        Input('reload-trigger', 'data'),
+        prevent_initial_call=False,
+    )
+    def init_scope_options(_):
+        from app_core.data_cache import get_data_cache
+        from app_core.callbacks.analytics.stratigraphy import _sorted_layers
+        data_cache = get_data_cache()
+        df = data_cache['df']
+
+        units = _sorted_layers([u for u in df['unit_C'].dropna().unique() if str(u).strip()])
+        unit_opts = [{'label': str(v), 'value': v} for v in units]
+
+        parts = sorted([p for p in df['part_C'].dropna().unique() if str(p).strip()])
+        part_opts = [{'label': str(v), 'value': v} for v in parts]
+
+        return unit_opts, part_opts, None, None
+
     @app.callback(
         [Output('recluster-status', 'children'),
          Output('reload-trigger', 'data'),
@@ -32,9 +55,13 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
          State('cluster-algorithm-selector', 'value'),
          State('pca-components-input', 'value'),
          State('stratified-clustering-checkbox', 'value'),
+         State('cluster-scope-unit', 'value'),
+         State('cluster-scope-part', 'value'),
          State('reload-trigger', 'data')]
     )
-    def perform_reclustering(n_clicks, n_clusters, cluster_mode, cluster_algorithm, pca_components, stratified_value, current_trigger):
+    def perform_reclustering(n_clicks, n_clusters, cluster_mode, cluster_algorithm,
+                             pca_components, stratified_value,
+                             scope_unit, scope_part, current_trigger):
         """执行聚类算法并写回簇目录与元数据。
 
         Returns:
@@ -52,24 +79,81 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
             # 检查是否启用分层聚类
             stratified_enabled = stratified_value and 'stratified' in stratified_value
 
+            # ── 聚类范围过滤 ──────────────────────────────────────────────
+            import pandas as pd
+            base_dir = Path(__file__).parent.parent.parent
+            data_csv = base_dir / 'sherd_cluster_table_clustered_only.csv'
+            df_full = pd.read_csv(data_csv)
+
+            scope_filters = []
+            if scope_unit:
+                if 'unit_C' in df_full.columns:
+                    df_full = df_full[df_full['unit_C'].astype(str) == str(scope_unit)]
+                    scope_filters.append(f'层={scope_unit}')
+            if scope_part:
+                if 'part_C' in df_full.columns:
+                    df_full = df_full[df_full['part_C'].astype(str) == str(scope_part)]
+                    scope_filters.append(f'Part={scope_part}')
+
+            if scope_filters and len(df_full) == 0:
+                return html.Div(f'✗ 范围 [{", ".join(scope_filters)}] 内无数据',
+                               style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update
+
+            scope_label = f'[{", ".join(scope_filters)}] ' if scope_filters else ''
+
+            # 根据范围过滤特征数据
+            features_df = pd.read_csv(features_csv)
+            if scope_unit or scope_part:
+                # 找共同ID列，过滤特征
+                # 特征CSV用 filename，df_full 用 image_name/sample_id
+                # 需要做名称映射
+                matched = False
+                for feat_col, data_col in [
+                    ('filename', 'image_name'),
+                    ('filename', 'sample_id'),
+                    ('sample_id', 'sample_id'),
+                    ('image_name', 'image_name'),
+                    ('piece_id', 'piece_id'),
+                ]:
+                    if feat_col in features_df.columns and data_col in df_full.columns:
+                        valid_ids = set(df_full[data_col].astype(str))
+                        # filename 的值是路径，需要匹配 image_name（stem）
+                        if feat_col == 'filename' and data_col == 'image_name':
+                            from pathlib import Path as _Path
+                            features_df = features_df[
+                                features_df[feat_col].apply(lambda x: _Path(str(x)).stem).isin(valid_ids) |
+                                features_df[feat_col].astype(str).isin(valid_ids)
+                            ]
+                        else:
+                            features_df = features_df[features_df[feat_col].astype(str).isin(valid_ids)]
+                        matched = True
+                        break
+                if not matched:
+                    return html.Div('✗ 无法匹配特征数据和范围过滤条件，请检查数据列名',
+                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update
+                if len(features_df) == 0:
+                    return html.Div(f'✗ 范围 [{", ".join(scope_filters)}] 内无匹配特征数据',
+                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update
+
+                # 写入临时特征文件
+                scope_features_path = base_dir / 'temp_scope_features.csv'
+                features_df.to_csv(scope_features_path, index=False)
+                effective_features_csv = scope_features_path
+            else:
+                effective_features_csv = features_csv
+
             if stratified_enabled:
                 # 分层聚类：对每个unit_C分别聚类
-                import pandas as pd
                 import numpy as np
-
-                # 读取数据获取unit_C信息
-                base_dir = Path(__file__).parent.parent.parent
-                data_csv = base_dir / 'sherd_cluster_table_clustered_only.csv'
-                df_full = pd.read_csv(data_csv)
 
                 if 'unit_C' not in df_full.columns:
                     return html.Div('✗ 数据中没有unit_C列，无法进行分层聚类',
                                    style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update
 
-                # 读取特征数据
-                features_df = pd.read_csv(features_csv)
+                # 读取（已过滤范围的）特征数据
+                features_df = pd.read_csv(effective_features_csv)
 
-                # 合并获取unit_C信息 - 尝试多种可能的ID列
+                # 合并获取unit_C信息
                 id_col = None
                 for col in ['sample_id', 'image_name', 'piece_id']:
                     if col in df_full.columns and col in features_df.columns:
@@ -243,15 +327,15 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
             else:
                 # 原有的全局聚类逻辑
                 # 根据平均聚类大小计算K值
-                import pandas as pd
-                features_df = pd.read_csv(features_csv)
-                total_samples = len(features_df)
-                avg_cluster_size = n_clusters  # n_clusters现在表示平均聚类大小
+                total_samples = len(pd.read_csv(effective_features_csv))
+                avg_cluster_size = n_clusters
                 calculated_k = max(2, round(total_samples / avg_cluster_size))
+                # 确保 K < 样本数（轮廓系数要求至少2个簇且每簇至少1个样本）
+                calculated_k = min(calculated_k, total_samples - 1)
 
                 if cluster_algorithm == 'kmeans':
                     clustering_result = perform_kmeans_clustering(
-                        features_csv_path=features_csv,
+                        features_csv_path=effective_features_csv,
                         n_clusters=calculated_k,
                         cluster_mode=cluster_mode,
                         pca_components=pca_comp,
@@ -260,25 +344,17 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                     _, _, linkage = cluster_algorithm.partition('-')
                     linkage = linkage or 'ward'
                     clustering_result = perform_agglomerative_clustering(
-                        features_csv_path=features_csv,
+                        features_csv_path=effective_features_csv,
                         n_clusters=calculated_k,
                         cluster_mode=cluster_mode,
                         linkage=linkage,
                         pca_components=pca_comp,
                     )
                 elif cluster_algorithm.startswith('spectral'):
-                    import pandas as pd
-                    sample_count = len(pd.read_csv(features_csv, usecols=[0]))
-                    if sample_count > 5000:
-                        return html.Div(
-                            f'✗ 谱聚类不支持大数据集（当前 {sample_count} 个样本，上限 5000）。'
-                            '请改用 K-Means 或 Leiden。',
-                            style={'color': 'red', 'fontWeight': 'bold'}
-                        ), dash.no_update, dash.no_update
                     _, _, assign_labels = cluster_algorithm.partition('-')
                     assign_labels = assign_labels or 'kmeans'
                     clustering_result = perform_spectral_clustering(
-                        features_csv_path=features_csv,
+                        features_csv_path=effective_features_csv,
                         n_clusters=calculated_k,
                         cluster_mode=cluster_mode,
                         assign_labels=assign_labels,
@@ -286,7 +362,7 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                     )
                 elif cluster_algorithm == 'leiden':
                     clustering_result = perform_leiden_clustering(
-                        features_csv_path=features_csv,
+                        features_csv_path=effective_features_csv,
                         cluster_mode=cluster_mode,
                         pca_components=pca_comp,
                     )
@@ -348,7 +424,13 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                 'leiden': 'Leiden (kNN 图)'
             }
             pca_display = f', PCA={pca_comp}维' if pca_comp else ''
-            status = f'✓ 聚类完成! 算法={algo_display.get(cluster_algorithm, algo_name)}, 模式={mode_display}, K={clustering_result["n_clusters"]}{pca_display}, 轮廓系数={silhouette_avg:.3f}'
+            scope_display = f', 范围={", ".join(scope_filters)}' if scope_filters else ''
+            status = f'✓ 聚类完成! 算法={algo_display.get(cluster_algorithm, algo_name)}, 模式={mode_display}, K={clustering_result["n_clusters"]}{pca_display}{scope_display}, 轮廓系数={silhouette_avg:.3f}'
+
+            # 清理临时范围特征文件
+            if scope_unit or scope_part:
+                scope_features_path = base_dir / 'temp_scope_features.csv'
+                scope_features_path.unlink(missing_ok=True)
 
             # 构建成功消息
             msg_parts = [
