@@ -60,15 +60,20 @@ def register_category_breakdown_callbacks(app):
             fig.update_layout(margin=dict(l=30, r=20, t=40, b=40))
             return fig
 
+        group_fields = list(dict.fromkeys([x_field, category_field]))
         grouped = (
             dff
-            .groupby([x_field, category_field], observed=True)
+            .groupby(group_fields, observed=True)
             .size()
             .reset_index(name='count')
         )
 
+        if category_field not in grouped.columns:
+            grouped[category_field] = grouped[x_field]
+
         grouped['x_label'] = grouped[x_field].astype(str)
-        grouped = grouped.sort_values([x_field, category_field])
+        sort_fields = list(dict.fromkeys([x_field, category_field]))
+        grouped = grouped.sort_values(sort_fields)
 
         fig = px.bar(
             grouped,

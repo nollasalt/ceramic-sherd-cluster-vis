@@ -27,6 +27,7 @@ from data_processing import (
     ensure_dimensionality_reduction,
     #ensure_sample_ids,
     load_cluster_metadata,
+    load_scope_reference,
     img_to_base64_full,
 )
 from performance_utils import optimize_dataframe
@@ -197,6 +198,8 @@ def build_initial_figure(df: pd.DataFrame, feature_cols, cluster_col, hover_cols
 
 def create_app():
     """创建并配置 Dash 应用实例。"""
+    from app_core.callbacks.analytics.stratigraphy import _sorted_layers
+
     df, feature_cols, raw_feature_cols, cluster_col, image_col = load_dataset(DATA_CSV, DEFAULT_CLUSTER_MODE)
 
     # 将数据集与元数据放入服务端缓存，避免前端携带大体量 JSON
@@ -226,6 +229,13 @@ def create_app():
     unit_options = [{'label': str(u), 'value': u} for u in sorted(df['unit_C'].dropna().unique())] if 'unit_C' in df.columns else []
     part_options = [{'label': str(p), 'value': p} for p in sorted(df['part_C'].dropna().unique())] if 'part_C' in df.columns else []
     type_options = [{'label': str(t), 'value': t} for t in sorted(df['type_C'].dropna().unique())] if 'type_C' in df.columns else []
+    scope_df = load_scope_reference()
+    if scope_df is None:
+        scope_df = df
+    scope_unit_values = _sorted_layers([u for u in scope_df['unit_C'].dropna().unique() if str(u).strip()]) if 'unit_C' in scope_df.columns else []
+    scope_unit_options = [{'label': str(u), 'value': u} for u in scope_unit_values]
+    scope_part_values = sorted([p for p in scope_df['part_C'].dropna().unique() if str(p).strip()]) if 'part_C' in scope_df.columns else []
+    scope_part_options = [{'label': str(p), 'value': p} for p in scope_part_values]
 
     algorithm_options = [
         {'label': 't-SNE', 'value': 'tsne'},
@@ -266,6 +276,8 @@ def create_app():
         init_unit_options=unit_options,
         init_part_options=part_options,
         init_type_options=type_options,
+        init_scope_unit_options=scope_unit_options,
+        init_scope_part_options=scope_part_options,
         algorithm_options=algorithm_options,
         initial_cluster_mode=initial_cluster_mode,
         initial_n_clusters=initial_n_clusters,

@@ -1,8 +1,11 @@
 """代表样本展示回调。"""
+import os
 from pathlib import Path
+from urllib.parse import quote_plus, urlsplit
 
 import dash
 from dash import ALL, Input, Output, State, html
+from flask import has_request_context, request
 import numpy as np
 import pandas as pd
 
@@ -44,6 +47,23 @@ def register_representatives_callbacks(app, *, image_root):
         if alt2.exists():
             return alt2
         return p
+
+    def build_assemble_url(cluster_id):
+        """为“尝试拼对”构建可部署的外部链接。"""
+        query = f'cluster_id={quote_plus(str(cluster_id))}'
+        base_url = os.environ.get('CERAMIC_ASSEMBLE_BASE_URL')
+        if base_url:
+            separator = '&' if '?' in base_url else '?'
+            return f"{base_url.rstrip('/')}{separator}{query}"
+
+        port = os.environ.get('CERAMIC_ASSEMBLE_PORT', '12800')
+        if has_request_context():
+            parts = urlsplit(request.host_url)
+            scheme = parts.scheme or 'http'
+            host = parts.hostname or '127.0.0.1'
+            return f'{scheme}://{host}:{port}/?{query}'
+
+        return f'http://127.0.0.1:{port}/?{query}'
 
     @app.callback(
         Output('representative-grid', 'children'),
@@ -141,7 +161,7 @@ def register_representatives_callbacks(app, *, image_root):
                 cluster_id_for_url = int(c)
             except Exception:
                 cluster_id_for_url = str(c)
-            assemble_url = f'http://127.0.0.1:12800/?cluster_id={cluster_id_for_url}'
+            assemble_url = build_assemble_url(cluster_id_for_url)
 
             if strategy == 'center' and feature_cols and len(subset_feat) > 0:
                 center_vec = subset_feat[feature_cols].mean().values

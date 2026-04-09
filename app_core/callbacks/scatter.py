@@ -99,7 +99,9 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
         [Output('tsne-plot', 'figure'),
          Output('data-store', 'data'),
          Output('sample-cluster-mapping', 'data'),
-         Output('cluster-filter', 'options')],
+         Output('cluster-filter', 'options'),
+         Output('cluster-preview-selector', 'options'),
+         Output('cluster-preview-selector', 'value')],
         [Input('cluster-filter', 'value'),
          Input('unit-filter', 'value'),
          Input('part-filter', 'value'),
@@ -109,11 +111,12 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
          Input('z-axis-selector', 'value'),
          Input('reload-trigger', 'data')],
         State('data-store', 'data'),
+        State('cluster-preview-selector', 'value'),
         prevent_initial_call=True
     )
     def update_plot(selected_clusters, selected_units, selected_parts, selected_types,
                     selected_algorithm, selected_dimension, z_axis='dimension',
-                    reload_trigger=0, data_store=None):
+                    reload_trigger=0, data_store=None, current_preview_cluster=None):
         """根据筛选条件与降维参数刷新散点图。
 
         同时负责处理重聚类后的数据重载：更新服务端缓存、重建簇映射与筛选选项。
@@ -337,15 +340,41 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
 
         sample_cluster_mapping = df.set_index('sample_id')[cluster_col].to_dict()
         clusters = sorted(df[cluster_col].dropna().unique())
-        # 支持字符串类型的cluster_id（分层聚类）
-        cluster_options = []
-        for c in clusters:
-            try:
-                cluster_options.append({'label': str(int(c)), 'value': int(c)})
-            except (ValueError, TypeError):
-                cluster_options.append({'label': str(c), 'value': str(c)})
 
-        return fig, updated_data_store, sample_cluster_mapping, cluster_options
+        def normalize_cluster_value(value):
+            """将簇值统一为前端下拉框使用的稳定类型。"""
+            try:
+                return int(value)
+            except (ValueError, TypeError):
+                return str(value)
+
+        cluster_options = []
+        cluster_preview_options = []
+        for c in clusters:
+            option_value = normalize_cluster_value(c)
+            option_label = str(option_value)
+            cluster_options.append({'label': option_label, 'value': option_value})
+            cluster_preview_options.append({'label': f'簇 {option_label}', 'value': option_value})
+
+        preview_value = dash.no_update
+        normalized_preview_cluster = None
+        if current_preview_cluster is not None:
+            normalized_preview_cluster = normalize_cluster_value(current_preview_cluster)
+
+        valid_preview_values = {opt['value'] for opt in cluster_preview_options}
+        if normalized_preview_cluster not in valid_preview_values:
+            preview_value = None
+        elif normalized_preview_cluster is not None:
+            preview_value = normalized_preview_cluster
+
+        return (
+            fig,
+            updated_data_store,
+            sample_cluster_mapping,
+            cluster_options,
+            cluster_preview_options,
+            preview_value,
+        )
 
     @app.callback(
         Output('cluster-images-store', 'data'),

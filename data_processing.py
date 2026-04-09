@@ -30,6 +30,7 @@ except ImportError:
 DEFAULT_CSV = 'sherd_cluster_table_clustered_only.csv'
 DEFAULT_IMAGE_ROOT = Path('all_cutouts')
 DEFAULT_CLUSTER_METADATA_PATH = Path('all_kmeans_new/cluster_metadata.json')
+DEFAULT_SCOPE_REFERENCE_PATH = Path('scripts/jd_sherds_info.csv')
 
 
 # ============================================
@@ -44,6 +45,63 @@ def load_cluster_metadata(path: Path = DEFAULT_CLUSTER_METADATA_PATH):
     except Exception as exc:  # 读文件失败时打印并返回 None
         print(f"读取聚类元数据失败: {exc}")
     return None
+
+
+def load_scope_reference(path: Path = DEFAULT_SCOPE_REFERENCE_PATH):
+    """加载用于 unit/part 范围筛选的完整参考表。"""
+    try:
+        if path.exists():
+            df = pd.read_csv(path).copy()
+            if 'sherd_id' in df.columns and 'sample_id' not in df.columns:
+                df['sample_id'] = df['sherd_id']
+            return df
+    except Exception as exc:
+        print(f"读取范围参考表失败: {exc}")
+    return None
+
+
+def count_clustering_samples(data, cluster_mode='merged', group_col=None):
+    """统计给定聚类模式下的有效样本数。"""
+    if isinstance(data, (str, Path)):
+        df = pd.read_csv(data).copy()
+    else:
+        df = data.copy()
+
+    if "filename" not in df.columns:
+        raise ValueError("CSV 中必须包含 'filename' 列")
+
+    def get_piece_id(filename):
+        """提取陶片主编号，去除 interior/exterior 后缀。"""
+        name = Path(str(filename)).stem
+        name = name.replace("_exterior", "").replace("_interior", "")
+        return name.lower()
+
+    work = df.copy()
+    work["filename"] = work["filename"].astype(str)
+    work["main_id"] = work["filename"].apply(get_piece_id)
+
+    def _count(frame: pd.DataFrame) -> int:
+        if cluster_mode == 'merged':
+            piece_counts = frame.groupby("main_id", observed=True)["filename"].size()
+            return int((piece_counts >= 2).sum())
+        if cluster_mode == 'exterior':
+            mask = frame["filename"].str.lower().str.contains("exterior", na=False)
+            return int(frame.loc[mask, "main_id"].nunique())
+        if cluster_mode == 'interior':
+            mask = frame["filename"].str.lower().str.contains("interior", na=False)
+            return int(frame.loc[mask, "main_id"].nunique())
+        raise ValueError(f"未知的聚类模式: {cluster_mode}")
+
+    if group_col is None:
+        return _count(work)
+
+    if group_col not in work.columns:
+        raise ValueError(f"分组列不存在: {group_col}")
+
+    return {
+        group_value: _count(group_df)
+        for group_value, group_df in work.groupby(group_col, observed=True)
+    }
 
 
 # def detect_columns(df: pd.DataFrame):
@@ -209,7 +267,7 @@ def perform_kmeans_clustering(features_csv_path, n_clusters=20, cluster_mode='me
     labels = kmeans.fit_predict(features_scaled)
     cluster_centers = kmeans.cluster_centers_
 
-    if len(set(labels)) > 1:
+    if 1 < len(set(labels)) < len(labels):
         silhouette_avg = silhouette_score(features_scaled, labels)
         print(f"轮廓系数: {silhouette_avg:.4f}")
     else:
@@ -264,7 +322,7 @@ def perform_agglomerative_clustering(features_csv_path, n_clusters=20, cluster_m
         cluster_centers.append(center)
     cluster_centers = np.stack(cluster_centers)
 
-    if len(set(labels)) > 1:
+    if 1 < len(set(labels)) < len(labels):
         silhouette_avg = silhouette_score(features_scaled, labels)
         print(f"轮廓系数: {silhouette_avg:.4f}")
     else:
@@ -330,7 +388,7 @@ def perform_spectral_clustering(features_csv_path, n_clusters=20, cluster_mode='
         cluster_centers.append(center)
     cluster_centers = np.stack(cluster_centers)
 
-    if len(set(labels)) > 1:
+    if 1 < len(set(labels)) < len(labels):
         silhouette_avg = silhouette_score(features_scaled, labels)
         print(f"轮廓系数: {silhouette_avg:.4f}")
     else:
@@ -664,7 +722,7 @@ def perform_leiden_clustering(
     cluster_centers = np.stack(cluster_centers)
 
     silhouette_avg = 0.0
-    if n_clusters > 1:
+    if 1 < n_clusters < len(labels):
         silhouette_avg = float(silhouette_score(features_scaled, labels))
         print(f"轮廓系数: {silhouette_avg:.4f}")
 

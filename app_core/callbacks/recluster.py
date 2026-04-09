@@ -5,6 +5,7 @@ Reclustering callback extracted from the main app module.
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import dash
@@ -12,6 +13,8 @@ from performance_utils import plot_cache
 from dash import Input, Output, State, html
 
 from data_processing import (
+    count_clustering_samples,
+    load_scope_reference,
     perform_agglomerative_clustering,
     perform_kmeans_clustering,
     perform_leiden_clustering,
@@ -21,6 +24,46 @@ from data_processing import (
 
 def register_recluster_callbacks(app, *, features_csv, image_root):
     """注册重新聚类回调。"""
+
+    def _normalize_scope_value(value):
+        """统一范围筛选值的比较形式。"""
+        return str(value).strip()
+
+    def _piece_id_from_name(value):
+        """从文件名或样本名提取陶片主编号。"""
+        stem = Path(str(value)).stem
+        return stem.replace('_exterior', '').replace('_interior', '').lower()
+
+    def _filter_features_by_scope(features_df, scoped_df):
+        """按范围内的陶片主编号过滤特征表，保留同一陶片的正反面。"""
+        work = features_df.copy()
+        if 'filename' not in work.columns:
+            raise ValueError("特征CSV缺少 filename 列，无法按范围过滤")
+
+        scoped_piece_ids = set()
+
+        if 'sample_id' in scoped_df.columns:
+            scoped_piece_ids.update(
+                scoped_df['sample_id'].dropna().astype(str).str.strip().str.lower()
+            )
+
+        if 'image_name' in scoped_df.columns:
+            scoped_piece_ids.update(
+                scoped_df['image_name'].dropna().astype(str).map(_piece_id_from_name)
+            )
+
+        if 'piece_id' in scoped_df.columns:
+            scoped_piece_ids.update(
+                scoped_df['piece_id'].dropna().astype(str).str.strip().str.lower()
+            )
+
+        scoped_piece_ids = {pid for pid in scoped_piece_ids if pid}
+        if not scoped_piece_ids:
+            return work.iloc[0:0].copy()
+
+        work['_piece_id'] = work['filename'].astype(str).map(_piece_id_from_name)
+        filtered = work[work['_piece_id'].isin(scoped_piece_ids)].copy()
+        return filtered.drop(columns=['_piece_id'], errors='ignore')
 
     # ── 初始化聚类范围选项 ──────────────────────────────────────────────────
     @app.callback(
@@ -35,7 +78,9 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
         from app_core.data_cache import get_data_cache
         from app_core.callbacks.analytics.stratigraphy import _sorted_layers
         data_cache = get_data_cache()
-        df = data_cache['df']
+        df = load_scope_reference()
+        if df is None:
+            df = data_cache['df']
 
         units = _sorted_layers([u for u in df['unit_C'].dropna().unique() if str(u).strip()])
         unit_opts = [{'label': str(v), 'value': v} for v in units]
@@ -48,7 +93,11 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
     @app.callback(
         [Output('recluster-status', 'children'),
          Output('reload-trigger', 'data'),
-         Output('cluster-metadata-store', 'data')],
+         Output('cluster-metadata-store', 'data'),
+         Output('cluster-filter', 'value', allow_duplicate=True),
+         Output('unit-filter', 'value', allow_duplicate=True),
+         Output('part-filter', 'value', allow_duplicate=True),
+         Output('type-filter', 'value', allow_duplicate=True)],
         Input('recluster-button', 'n_clicks'),
         [State('n-clusters-input', 'value'),
          State('cluster-mode-selector', 'value'),
@@ -57,7 +106,8 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
          State('stratified-clustering-checkbox', 'value'),
          State('cluster-scope-unit', 'value'),
          State('cluster-scope-part', 'value'),
-         State('reload-trigger', 'data')]
+         State('reload-trigger', 'data')],
+        prevent_initial_call=True,
     )
     def perform_reclustering(n_clicks, n_clusters, cluster_mode, cluster_algorithm,
                              pca_components, stratified_value,
@@ -68,14 +118,13 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
             tuple[str, int | NoUpdate]: 状态提示文本与刷新触发计数。
         """
         if n_clicks == 0 or n_clicks is None:
-            return '', dash.no_update, dash.no_update
+            return '', dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
         try:
             cluster_algorithm = cluster_algorithm or 'kmeans'
             pca_comp = int(pca_components) if pca_components else None
             if pca_comp == 0:
                 pca_comp = None
-
             # 检查是否启用分层聚类
             stratified_enabled = stratified_value and 'stratified' in stratified_value
 
@@ -83,57 +132,35 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
             import pandas as pd
             base_dir = Path(__file__).parent.parent.parent
             data_csv = base_dir / 'sherd_cluster_table_clustered_only.csv'
-            df_full = pd.read_csv(data_csv)
+            df_full = load_scope_reference()
+            if df_full is None:
+                df_full = pd.read_csv(data_csv)
 
             scope_filters = []
             if scope_unit:
                 if 'unit_C' in df_full.columns:
-                    df_full = df_full[df_full['unit_C'].astype(str) == str(scope_unit)]
+                    target_unit = _normalize_scope_value(scope_unit)
+                    df_full = df_full[df_full['unit_C'].astype(str).str.strip() == target_unit]
                     scope_filters.append(f'层={scope_unit}')
             if scope_part:
                 if 'part_C' in df_full.columns:
-                    df_full = df_full[df_full['part_C'].astype(str) == str(scope_part)]
+                    target_part = _normalize_scope_value(scope_part)
+                    df_full = df_full[df_full['part_C'].astype(str).str.strip() == target_part]
                     scope_filters.append(f'Part={scope_part}')
 
             if scope_filters and len(df_full) == 0:
                 return html.Div(f'✗ 范围 [{", ".join(scope_filters)}] 内无数据',
-                               style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update
+                               style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
             scope_label = f'[{", ".join(scope_filters)}] ' if scope_filters else ''
 
             # 根据范围过滤特征数据
             features_df = pd.read_csv(features_csv)
             if scope_unit or scope_part:
-                # 找共同ID列，过滤特征
-                # 特征CSV用 filename，df_full 用 image_name/sample_id
-                # 需要做名称映射
-                matched = False
-                for feat_col, data_col in [
-                    ('filename', 'image_name'),
-                    ('filename', 'sample_id'),
-                    ('sample_id', 'sample_id'),
-                    ('image_name', 'image_name'),
-                    ('piece_id', 'piece_id'),
-                ]:
-                    if feat_col in features_df.columns and data_col in df_full.columns:
-                        valid_ids = set(df_full[data_col].astype(str))
-                        # filename 的值是路径，需要匹配 image_name（stem）
-                        if feat_col == 'filename' and data_col == 'image_name':
-                            from pathlib import Path as _Path
-                            features_df = features_df[
-                                features_df[feat_col].apply(lambda x: _Path(str(x)).stem).isin(valid_ids) |
-                                features_df[feat_col].astype(str).isin(valid_ids)
-                            ]
-                        else:
-                            features_df = features_df[features_df[feat_col].astype(str).isin(valid_ids)]
-                        matched = True
-                        break
-                if not matched:
-                    return html.Div('✗ 无法匹配特征数据和范围过滤条件，请检查数据列名',
-                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update
+                features_df = _filter_features_by_scope(features_df, df_full)
                 if len(features_df) == 0:
                     return html.Div(f'✗ 范围 [{", ".join(scope_filters)}] 内无匹配特征数据',
-                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update
+                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
                 # 写入临时特征文件
                 scope_features_path = base_dir / 'temp_scope_features.csv'
@@ -148,63 +175,61 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
 
                 if 'unit_C' not in df_full.columns:
                     return html.Div('✗ 数据中没有unit_C列，无法进行分层聚类',
-                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update
+                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
                 # 读取（已过滤范围的）特征数据
                 features_df = pd.read_csv(effective_features_csv)
 
-                # 合并获取unit_C信息
-                id_col = None
-                for col in ['sample_id', 'image_name', 'piece_id']:
-                    if col in df_full.columns and col in features_df.columns:
-                        id_col = col
-                        break
-
-                if id_col:
-                    features_with_unit = features_df.merge(
-                        df_full[[id_col, 'unit_C']],
-                        on=id_col,
+                if 'sample_id' in df_full.columns:
+                    unit_map = (
+                        df_full[['sample_id', 'unit_C']]
+                        .dropna(subset=['sample_id', 'unit_C'])
+                        .assign(
+                            sample_id=lambda frame: frame['sample_id'].astype(str).str.strip().str.lower(),
+                            unit_C=lambda frame: frame['unit_C'].astype(str).str.strip(),
+                        )
+                        .drop_duplicates(subset=['sample_id'])
+                    )
+                    features_with_unit = features_df.copy()
+                    features_with_unit['sample_id'] = features_with_unit['filename'].map(_piece_id_from_name)
+                    features_with_unit = features_with_unit.merge(
+                        unit_map,
+                        on='sample_id',
                         how='left'
                     )
                 else:
-                    # 如果没有共同ID列，尝试使用image_name匹配
-                    if 'image_name' in df_full.columns:
-                        # 从features_df的第一列获取ID（通常是sample_id或image_name）
-                        features_with_unit = features_df.copy()
-                        features_with_unit['temp_id'] = features_with_unit.iloc[:, 0]
-                        df_full_temp = df_full.copy()
-                        df_full_temp['temp_id'] = df_full_temp['image_name']
-                        features_with_unit = features_with_unit.merge(
-                            df_full_temp[['temp_id', 'unit_C']],
-                            on='temp_id',
-                            how='left'
-                        ).drop(columns=['temp_id'])
-                    else:
-                        return html.Div('✗ 无法匹配特征数据和unit_C信息，请检查数据格式',
-                                       style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update
+                    return html.Div('✗ 范围过滤后缺少 sample_id，无法匹配 unit_C 信息',
+                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
                 # 过滤掉unit_C为空的样本
                 features_with_unit = features_with_unit.dropna(subset=['unit_C'])
 
+                unit_sample_counts = count_clustering_samples(
+                    features_with_unit,
+                    cluster_mode=cluster_mode,
+                    group_col='unit_C',
+                )
                 units = sorted(features_with_unit['unit_C'].unique())
                 all_labels = []
                 all_piece_ids = []
                 all_centers = []
                 unit_cluster_counts = {}
                 skipped_units = []
+                unit_silhouettes = {}
 
                 for unit in units:
                     unit_mask = features_with_unit['unit_C'] == unit
                     unit_features = features_with_unit[unit_mask]
+                    effective_unit_samples = int(unit_sample_counts.get(unit, 0))
 
                     # 根据平均聚类大小计算该地层的K值
                     avg_cluster_size = n_clusters  # 在分层聚类中，n_clusters表示平均聚类大小
-                    unit_n_clusters = max(2, round(len(unit_features) / avg_cluster_size))
+                    unit_n_clusters = max(2, round(effective_unit_samples / avg_cluster_size))
 
                     # 跳过样本数不足的unit
                     min_samples = max(unit_n_clusters, 2)
-                    if len(unit_features) < min_samples:
-                        skipped_units.append(f"{unit}({len(unit_features)}片)")
+                    if effective_unit_samples < min_samples:
+                        skipped_units.append(f"{unit}({effective_unit_samples}片)")
                         continue
 
                     # 识别特征列（数值列，排除ID和元数据列）
@@ -276,6 +301,7 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                         all_piece_ids.extend(unit_result['piece_ids'])
                         all_centers.append(unit_result['cluster_centers'])
                         unit_cluster_counts[unit] = unit_result['n_clusters']
+                        unit_silhouettes[unit] = float(unit_result.get('silhouette_score', 0.0) or 0.0)
 
                     finally:
                         # 清理临时文件
@@ -285,7 +311,7 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                 if len(all_labels) == 0:
                     skip_msg = f"所有地层单位样本数不足（需要≥{max(n_clusters, 2)}片）" if skipped_units else "没有可聚类的数据"
                     return html.Div(f'✗ 分层聚类失败: {skip_msg}',
-                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update
+                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
                 # 合并所有结果
                 labels = np.array(all_labels)
@@ -295,16 +321,12 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                 # 计算整体轮廓系数（使用各unit轮廓系数的加权平均）
                 total_samples = len(labels)
                 weighted_silhouette = 0.0
-                unit_silhouettes = {}
 
                 for unit in unit_cluster_counts.keys():
                     unit_mask = np.array([label.startswith(f"{unit}_") for label in labels])
                     unit_sample_count = unit_mask.sum()
                     if unit_sample_count > 0:
-                        # 从聚类结果中获取该unit的轮廓系数（如果有的话）
-                        # 这里简化处理，使用0.5作为默认值
-                        unit_silhouettes[unit] = 0.5
-                        weighted_silhouette += 0.5 * unit_sample_count
+                        weighted_silhouette += unit_silhouettes.get(unit, 0.0) * unit_sample_count
 
                 silhouette_avg = weighted_silhouette / total_samples if total_samples > 0 else 0.0
 
@@ -327,11 +349,17 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
             else:
                 # 原有的全局聚类逻辑
                 # 根据平均聚类大小计算K值
-                total_samples = len(pd.read_csv(effective_features_csv))
+                total_samples = count_clustering_samples(
+                    effective_features_csv,
+                    cluster_mode=cluster_mode,
+                )
+                if total_samples < 2:
+                    return html.Div('✗ 有效样本不足，无法完成聚类',
+                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
                 avg_cluster_size = n_clusters
                 calculated_k = max(2, round(total_samples / avg_cluster_size))
-                # 确保 K < 样本数（轮廓系数要求至少2个簇且每簇至少1个样本）
-                calculated_k = min(calculated_k, total_samples - 1)
+                max_allowed_k = total_samples if total_samples <= 2 else total_samples - 1
+                calculated_k = min(calculated_k, max_allowed_k)
 
                 if cluster_algorithm == 'kmeans':
                     clustering_result = perform_kmeans_clustering(
@@ -398,7 +426,7 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                 json.dump(metadata, f, indent=2, ensure_ascii=False)
 
             result = subprocess.run(
-                ['python', str(Path(__file__).parent.parent.parent / 'scripts' / 'build_table.py')],
+                [sys.executable, str(Path(__file__).parent.parent.parent / 'scripts' / 'build_table.py')],
                 capture_output=True,
                 text=True,
                 cwd=str(Path(__file__).parent.parent.parent)
@@ -455,7 +483,17 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
             plot_cache.clear()
             # 把新 metadata（不含 piece_to_cluster，体积太大）写入客户端 Store
             store_metadata = {k: v for k, v in metadata.items() if k != 'piece_to_cluster'}
-            return success_msg, new_trigger, store_metadata
+            scoped_unit_filter = [scope_unit] if scope_unit else None
+            scoped_part_filter = [scope_part] if scope_part else None
+            return (
+                success_msg,
+                new_trigger,
+                store_metadata,
+                [],
+                scoped_unit_filter,
+                scoped_part_filter,
+                [],
+            )
 
         except Exception as exc:
             import traceback
@@ -463,7 +501,7 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
             error_details = traceback.format_exc()
             print(f"聚类错误: {error_details}")
             error_msg = html.Div(f'✗ 聚类失败: {str(exc)}', style={'color': 'red', 'fontWeight': 'bold'})
-            return error_msg, dash.no_update, dash.no_update
+            return error_msg, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
     # 算法切换时动态显示/隐藏 K 输入框（Leiden 不需要 K）
     app.clientside_callback(
