@@ -96,6 +96,54 @@ def register_single_layer_callbacks(app, *, image_root):
             showlegend=False,
         )
 
+        # ── 纵向流动图：相邻层关系 ────────────────────────────────────────
+        flow_fig = None
+        all_units = _sorted_layers([u for u in df['unit_C'].dropna().unique() if str(u).strip()])
+        if selected_layer in all_units:
+            layer_idx = all_units.index(selected_layer)
+            adjacent_layers = []
+            if layer_idx > 0:
+                adjacent_layers.append(all_units[layer_idx - 1])
+            adjacent_layers.append(selected_layer)
+            if layer_idx < len(all_units) - 1:
+                adjacent_layers.append(all_units[layer_idx + 1])
+
+            if len(adjacent_layers) > 1:
+                # 简化版：直接显示各层的簇分布，不追踪单个样本
+                # 构建堆叠条形图
+                layer_data = {}
+                all_clusters_in_range = set()
+
+                for unit in adjacent_layers:
+                    unit_df = df[df['unit_C'] == unit]
+                    unit_counts = unit_df[cluster_col].value_counts()
+                    layer_data[unit] = unit_counts
+                    all_clusters_in_range.update(unit_counts.index)
+
+                all_clusters_sorted = sorted(all_clusters_in_range)
+
+                # 创建分组条形图（每个簇一组，不同层并排显示）
+                flow_fig = go.Figure()
+                for unit in adjacent_layers:
+                    y_vals = [layer_data[unit].get(c, 0) for c in all_clusters_sorted]
+                    flow_fig.add_trace(go.Bar(
+                        name=str(unit),
+                        x=[f'簇{c}' for c in all_clusters_sorted],
+                        y=y_vals,
+                        hovertemplate='%{x}<br>' + str(unit) + ': %{y}片<extra></extra>',
+                    ))
+
+                flow_fig.update_layout(
+                    title=f'{selected_layer} 与相邻层的簇分布对比',
+                    xaxis_title='簇',
+                    yaxis_title='样本数',
+                    barmode='group',  # 分组模式，同一簇的不同层并排显示
+                    margin=dict(l=50, r=20, t=50, b=80),
+                    height=450,
+                    showlegend=True,
+                    legend=dict(title='地层'),
+                )
+
         # ── 代表样本网格 ──────────────────────────────────────────────────
         samples_per_cluster = 4
         sample_cards = []
@@ -190,12 +238,19 @@ def register_single_layer_callbacks(app, *, image_root):
                     ], style={'width': '30%', 'padding': '20px'}),
                 ], style={'display': 'flex', 'gap': '12px', 'marginBottom': '16px'}),
             ]),
+        ]
 
+        if flow_fig:
+            components.append(html.Div([
+                dcc.Graph(figure=flow_fig),
+            ], style={'marginBottom': '16px'}))
+
+        components.append(
             html.Div([
                 html.H4('各簇代表样本', style={'fontSize': '15px', 'fontWeight': '600', 'marginBottom': '10px', 'color': '#444'}),
                 html.Div(sample_cards, style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '12px'}),
-            ], style={'marginBottom': '16px'}),
-        ]
+            ], style={'marginBottom': '16px'})
+        )
 
         if heatmap_fig:
             components.append(dcc.Graph(figure=heatmap_fig))

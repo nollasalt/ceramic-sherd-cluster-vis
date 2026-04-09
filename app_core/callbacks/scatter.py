@@ -337,7 +337,13 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
 
         sample_cluster_mapping = df.set_index('sample_id')[cluster_col].to_dict()
         clusters = sorted(df[cluster_col].dropna().unique())
-        cluster_options = [{'label': str(int(c)), 'value': int(c)} for c in clusters]
+        # 支持字符串类型的cluster_id（分层聚类）
+        cluster_options = []
+        for c in clusters:
+            try:
+                cluster_options.append({'label': str(int(c)), 'value': int(c)})
+            except (ValueError, TypeError):
+                cluster_options.append({'label': str(c), 'value': str(c)})
 
         return fig, updated_data_store, sample_cluster_mapping, cluster_options
 

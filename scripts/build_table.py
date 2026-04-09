@@ -53,7 +53,12 @@ df = pd.concat([df, parsed], axis=1)
 # ========================
 df["cluster_id"] = df["main_id"].map(piece_to_cluster)
 df = df.dropna(subset=["cluster_id"]).copy()
-df["cluster_id"] = df["cluster_id"].astype(int)
+# 尝试转换为整数，如果失败则保持为字符串（支持分层聚类）
+try:
+    df["cluster_id"] = df["cluster_id"].astype(int)
+except (ValueError, TypeError):
+    # 分层聚类的标签是字符串格式，保持不变
+    pass
 print(f"映射后有效行数: {len(df)}")
 
 # ========================
