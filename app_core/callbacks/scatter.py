@@ -16,6 +16,7 @@ from app_core.utils import CLUSTER_COLORS, PART_SYMBOL_SEQUENCE, get_part_symbol
 from data_processing import (
     #detect_columns,
     ensure_dimensionality_reduction,
+    generate_reduction_key,
     #ensure_sample_ids,
     img_to_base64,
     img_to_base64_full,
@@ -25,6 +26,41 @@ from data_processing import (
 
 def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options):
     """注册散点图与筛选器相关回调。"""
+
+    def hydrate_umap_disk_cache(df, *, n_neighbors=15, min_dist=0.1):
+        """在真正打开散点图页时尝试加载磁盘中的 UMAP 2D 缓存。"""
+        if 'sample_id' not in df.columns:
+            return df
+
+        reduction_key = generate_reduction_key(
+            'umap',
+            2,
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
+        )
+        umap_cols = [f'{reduction_key}_0', f'{reduction_key}_1']
+        if all(col in df.columns for col in umap_cols):
+            return df
+
+        umap_cache = Path(__file__).parent.parent.parent / 'umap_cache.npz'
+        if not umap_cache.exists():
+            return df
+
+        try:
+            cache = np.load(umap_cache, allow_pickle=True)
+            cached_ids = cache['sample_id'].astype(str)
+            current_ids = df['sample_id'].astype(str).reset_index(drop=True).values
+            if len(cached_ids) != len(current_ids) or not (cached_ids == current_ids).all():
+                return df
+
+            df = df.reset_index(drop=True).copy()
+            df[umap_cols[0]] = cache['x']
+            df[umap_cols[1]] = cache['y']
+            print('✓ UMAP 缓存命中，进入散点图页时直接复用')
+        except Exception as exc:
+            print(f'UMAP 缓存读取失败，将重新计算: {exc}')
+
+        return df
 
     @app.callback(
         [Output('unit-filter', 'options'),
@@ -101,7 +137,8 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
          Output('sample-cluster-mapping', 'data'),
          Output('cluster-filter', 'options'),
          Output('cluster-preview-selector', 'options'),
-         Output('cluster-preview-selector', 'value')],
+         Output('cluster-preview-selector', 'value'),
+         Output('plot-loading-status', 'children')],
         [Input('cluster-filter', 'value'),
          Input('unit-filter', 'value'),
          Input('part-filter', 'value'),
@@ -109,22 +146,33 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
          Input('algorithm-selector', 'value'),
          Input('dimension-selector', 'value'),
          Input('z-axis-selector', 'value'),
-         Input('reload-trigger', 'data')],
+         Input('reload-trigger', 'data'),
+         Input('visualization-tabs', 'value')],
         State('data-store', 'data'),
         State('cluster-preview-selector', 'value'),
         prevent_initial_call=True
     )
     def update_plot(selected_clusters, selected_units, selected_parts, selected_types,
                     selected_algorithm, selected_dimension, z_axis='dimension',
-                    reload_trigger=0, data_store=None, current_preview_cluster=None):
+                    reload_trigger=0, active_tab=None, data_store=None, current_preview_cluster=None):
         """根据筛选条件与降维参数刷新散点图。
 
         同时负责处理重聚类后的数据重载：更新服务端缓存、重建簇映射与筛选选项。
         """
+        if active_tab != 'scatter':
+            return (
+                dash.no_update,
+                dash.no_update,
+                dash.no_update,
+                dash.no_update,
+                dash.no_update,
+                dash.no_update,
+                dash.no_update,
+            )
+
         data_cache = get_data_cache()
         current_feature_cols = data_cache['feature_cols']
         raw_feature_cols = data_cache.get('raw_feature_cols', current_feature_cols)
-        old_cluster_mode = data_cache.get('cluster_mode', 'merged')
 
         # Handle dataset reload trigger to refresh server-side cache when reclustering completes
         ctx = dash.callback_context
@@ -163,6 +211,15 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
         if selected_algorithm is None:
             selected_algorithm = 'umap'
 
+        status_text = ''
+        if (
+            selected_algorithm == 'umap'
+            and selected_dimension == 2
+            and 'sample_id' in df.columns
+        ):
+            df = hydrate_umap_disk_cache(df, n_neighbors=15, min_dist=0.1)
+            status_text = '散点图已加载；UMAP 仅在进入本页时检查缓存并按需计算。'
+
         if selected_algorithm == 'tsne':
             df, reduction_key = ensure_dimensionality_reduction(
                 df, feature_cols, algorithm=selected_algorithm, n_components=selected_dimension, perplexity=30
@@ -171,10 +228,13 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
             df, reduction_key = ensure_dimensionality_reduction(
                 df, feature_cols, algorithm=selected_algorithm, n_components=selected_dimension, n_neighbors=15, min_dist=0.1
             )
+            if not status_text:
+                status_text = '散点图已加载；当前 UMAP 结果按需生成。'
         else:
             df, reduction_key = ensure_dimensionality_reduction(
                 df, feature_cols, algorithm=selected_algorithm, n_components=selected_dimension
             )
+            status_text = f'散点图已加载；当前使用 {selected_algorithm.upper()} 降维。'
 
         # 将带降维列的 df 写回缓存，避免筛选时重复计算
         data_cache['df'] = df
@@ -374,6 +434,7 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
             cluster_options,
             cluster_preview_options,
             preview_value,
+            status_text,
         )
 
     @app.callback(

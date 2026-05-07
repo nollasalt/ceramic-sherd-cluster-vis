@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import dash
 from performance_utils import plot_cache
@@ -24,6 +25,29 @@ from data_processing import (
 
 def register_recluster_callbacks(app, *, features_csv, image_root):
     """注册重新聚类回调。"""
+
+    def _build_refresh_url(current_url, reload_version):
+        """为当前地址追加刷新标记，确保浏览器执行整页刷新。"""
+        next_version = int(reload_version or 0)
+
+        if not current_url:
+            next_version = max(next_version, 1)
+            return f'/?_reclustered={next_version}'
+
+        parts = urlsplit(current_url)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+
+        existing_version = 0
+        existing_raw = query.get('_reclustered')
+        if existing_raw is not None:
+            try:
+                existing_version = int(existing_raw)
+            except (TypeError, ValueError):
+                existing_version = 0
+
+        next_version = max(next_version, existing_version + 1, 1)
+        query['_reclustered'] = str(next_version)
+        return urlunsplit(parts._replace(query=urlencode(query)))
 
     def _normalize_scope_value(value):
         """统一范围筛选值的比较形式。"""
@@ -97,7 +121,8 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
          Output('cluster-filter', 'value', allow_duplicate=True),
          Output('unit-filter', 'value', allow_duplicate=True),
          Output('part-filter', 'value', allow_duplicate=True),
-         Output('type-filter', 'value', allow_duplicate=True)],
+         Output('type-filter', 'value', allow_duplicate=True),
+         Output('url', 'href')],
         Input('recluster-button', 'n_clicks'),
         [State('n-clusters-input', 'value'),
          State('cluster-mode-selector', 'value'),
@@ -106,19 +131,20 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
          State('stratified-clustering-checkbox', 'value'),
          State('cluster-scope-unit', 'value'),
          State('cluster-scope-part', 'value'),
-         State('reload-trigger', 'data')],
+         State('reload-trigger', 'data'),
+         State('url', 'href')],
         prevent_initial_call=True,
     )
     def perform_reclustering(n_clicks, n_clusters, cluster_mode, cluster_algorithm,
                              pca_components, stratified_value,
-                             scope_unit, scope_part, current_trigger):
+                             scope_unit, scope_part, current_trigger, current_url):
         """执行聚类算法并写回簇目录与元数据。
 
         Returns:
             tuple[str, int | NoUpdate]: 状态提示文本与刷新触发计数。
         """
         if n_clicks == 0 or n_clicks is None:
-            return '', dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            return '', dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
         try:
             cluster_algorithm = cluster_algorithm or 'kmeans'
@@ -150,7 +176,7 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
 
             if scope_filters and len(df_full) == 0:
                 return html.Div(f'✗ 范围 [{", ".join(scope_filters)}] 内无数据',
-                               style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+                               style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
             scope_label = f'[{", ".join(scope_filters)}] ' if scope_filters else ''
 
@@ -160,7 +186,7 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                 features_df = _filter_features_by_scope(features_df, df_full)
                 if len(features_df) == 0:
                     return html.Div(f'✗ 范围 [{", ".join(scope_filters)}] 内无匹配特征数据',
-                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
                 # 写入临时特征文件
                 scope_features_path = base_dir / 'temp_scope_features.csv'
@@ -175,7 +201,7 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
 
                 if 'unit_C' not in df_full.columns:
                     return html.Div('✗ 数据中没有unit_C列，无法进行分层聚类',
-                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
                 # 读取（已过滤范围的）特征数据
                 features_df = pd.read_csv(effective_features_csv)
@@ -199,7 +225,7 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                     )
                 else:
                     return html.Div('✗ 范围过滤后缺少 sample_id，无法匹配 unit_C 信息',
-                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
                 # 过滤掉unit_C为空的样本
                 features_with_unit = features_with_unit.dropna(subset=['unit_C'])
@@ -311,7 +337,7 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                 if len(all_labels) == 0:
                     skip_msg = f"所有地层单位样本数不足（需要≥{max(n_clusters, 2)}片）" if skipped_units else "没有可聚类的数据"
                     return html.Div(f'✗ 分层聚类失败: {skip_msg}',
-                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
                 # 合并所有结果
                 labels = np.array(all_labels)
@@ -355,7 +381,7 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                 )
                 if total_samples < 2:
                     return html.Div('✗ 有效样本不足，无法完成聚类',
-                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+                                   style={'color': 'red', 'fontWeight': 'bold'}), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
                 avg_cluster_size = n_clusters
                 calculated_k = max(2, round(total_samples / avg_cluster_size))
                 max_allowed_k = total_samples if total_samples <= 2 else total_samples - 1
@@ -464,7 +490,7 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
             msg_parts = [
                 html.Span(status, style={'color': 'green', 'fontWeight': 'bold'}),
                 html.Br(),
-                html.Span('数据已自动重新加载，新的聚类结果现在可见。', style={'marginTop': '10px', 'color': '#28a745'})
+                html.Span('正在刷新页面以载入新的聚类结果。', style={'marginTop': '10px', 'color': '#28a745'})
             ]
 
             # 如果是分层聚类且有跳过的单位，添加警告
@@ -485,6 +511,7 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
             store_metadata = {k: v for k, v in metadata.items() if k != 'piece_to_cluster'}
             scoped_unit_filter = [scope_unit] if scope_unit else None
             scoped_part_filter = [scope_part] if scope_part else None
+            refresh_url = _build_refresh_url(current_url, new_trigger)
             return (
                 success_msg,
                 new_trigger,
@@ -493,6 +520,7 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
                 scoped_unit_filter,
                 scoped_part_filter,
                 [],
+                refresh_url,
             )
 
         except Exception as exc:
@@ -501,7 +529,7 @@ def register_recluster_callbacks(app, *, features_csv, image_root):
             error_details = traceback.format_exc()
             print(f"聚类错误: {error_details}")
             error_msg = html.Div(f'✗ 聚类失败: {str(exc)}', style={'color': 'red', 'fontWeight': 'bold'})
-            return error_msg, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            return error_msg, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
     # 算法切换时动态显示/隐藏 K 输入框（Leiden 不需要 K）
     app.clientside_callback(

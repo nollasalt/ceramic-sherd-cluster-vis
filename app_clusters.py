@@ -8,7 +8,7 @@ from pathlib import Path
 
 from dash import Dash
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
 from flask import jsonify, request
 
 from app_core.callbacks import (
@@ -20,11 +20,9 @@ from app_core.callbacks import (
     register_scatter_callbacks,
 )
 from app_core.layout import build_layout
-from app_core.data_cache import set_data_cache
-from app_core.utils import CLUSTER_COLORS, PART_SYMBOL_SEQUENCE, get_part_symbol_settings
+from app_core.data_cache import get_data_cache, set_data_cache
 from data_processing import (
     #detect_columns,
-    ensure_dimensionality_reduction,
     #ensure_sample_ids,
     load_cluster_metadata,
     load_scope_reference,
@@ -43,7 +41,6 @@ BASE_DIR = Path(__file__).parent
 DATA_CSV = BASE_DIR / 'sherd_cluster_table_clustered_only.csv'
 FEATURES_CSV = BASE_DIR / 'all_features_dinov3.csv'
 IMAGE_ROOT = BASE_DIR / 'all_cutouts'
-UMAP_CACHE = BASE_DIR / 'umap_cache.npz'  # 缓存 UMAP 坐标，避免每次启动重算
 DEFAULT_CLUSTER_MODE = 'merged'  # 默认聚类模式，正反面融合
 IMAGE_SEARCH_DIRS = list(dict.fromkeys([
     IMAGE_ROOT,
@@ -113,94 +110,38 @@ def find_image_path(image_path: str) -> Path | None:
     return None
 
 
-def build_initial_figure(df: pd.DataFrame, feature_cols, cluster_col, hover_cols, custom_data):
-    """构建首页默认二维降维散点图（UMAP），结果缓存到磁盘。"""
-    import time
-    import numpy as np
-
-    # ── 尝试读取磁盘缓存 ──────────────────────────────────────────────────────
-    reduction_key = 'umap_2_nn15_md10'
-    umap_cols = [f'{reduction_key}_0', f'{reduction_key}_1']
-    cache_valid = False
-
-    if UMAP_CACHE.exists():
-        try:
-            cache = np.load(UMAP_CACHE, allow_pickle=True)
-            cached_ids = cache['sample_id'].astype(str)
-            cur_ids = df['sample_id'].astype(str).reset_index(drop=True).values
-            if len(cached_ids) == len(cur_ids) and (cached_ids == cur_ids).all():
-                df = df.reset_index(drop=True)
-                df[umap_cols[0]] = cache['x']
-                df[umap_cols[1]] = cache['y']
-                cache_valid = True
-                print("✓ UMAP 缓存命中，跳过重新计算")
-        except Exception as e:
-            print(f"UMAP 缓存读取失败，将重新计算: {e}")
-
-    if not cache_valid:
-        t0 = time.time()
-        print("计算 UMAP（首次或缓存失效）...")
-        df, reduction_key = ensure_dimensionality_reduction(
-            df.copy(),
-            feature_cols,
-            algorithm='umap',
-            n_components=2,
-            perplexity=None,
-            n_neighbors=15,
-            min_dist=0.1,
-        )
-        print(f"UMAP 完成，耗时 {time.time() - t0:.1f}s")
-        # 保存缓存
-        try:
-            np.savez_compressed(
-                UMAP_CACHE,
-                sample_id=df['sample_id'].astype(str).values,
-                x=df[umap_cols[0]].values,
-                y=df[umap_cols[1]].values,
-            )
-            print(f"✓ UMAP 坐标已缓存到 {UMAP_CACHE.name}")
-        except Exception as e:
-            print(f"UMAP 缓存写入失败: {e}")
-
-    part_symbol_col, part_symbol_map = get_part_symbol_settings(df)
-    symbol_kwargs = {}
-    if part_symbol_col:
-        symbol_kwargs = {
-            'symbol': part_symbol_col,
-            'symbol_map': part_symbol_map,
-            'symbol_sequence': PART_SYMBOL_SEQUENCE,
-        }
-
-    fig = px.scatter(
-        df,
-        x=f'{reduction_key}_0',
-        y=f'{reduction_key}_1',
-        color=df[cluster_col].astype(str),
-        hover_data=hover_cols,
-        custom_data=custom_data,
-        color_discrete_sequence=CLUSTER_COLORS,
-        title='降维散点图 (UMAP)',
-        render_mode='webgl',
-        **symbol_kwargs,
+def build_initial_figure():
+    """构建散点图页的轻量占位图，避免应用启动时提前计算 UMAP。"""
+    fig = go.Figure()
+    fig.update_layout(
+        title='降维散点图',
+        xaxis={'visible': False},
+        yaxis={'visible': False},
+        annotations=[{
+            'text': '进入“散点图”标签页后再加载 UMAP / t-SNE / PCA 结果',
+            'xref': 'paper',
+            'yref': 'paper',
+            'x': 0.5,
+            'y': 0.5,
+            'showarrow': False,
+            'font': {'size': 16, 'color': '#666'},
+        }],
+        uirevision='tsne-plot',
+        template='plotly_white',
     )
-    fig.update_traces(marker={'size': 8})
-    fig.update_layout(uirevision='tsne-plot')
-
-    # 把带 UMAP 列的 df 写回 data_cache，避免首次筛选时重算
-    from app_core.data_cache import get_data_cache
-    dc = get_data_cache()
-    if dc:
-        dc['df'] = df
-        set_data_cache(dc)
-
     return fig
 
 
-def create_app():
-    """创建并配置 Dash 应用实例。"""
+def build_app_layout():
+    """基于最新聚类结果构建页面布局，并同步服务端缓存。"""
     from app_core.callbacks.analytics.stratigraphy import _sorted_layers
 
-    df, feature_cols, raw_feature_cols, cluster_col, image_col = load_dataset(DATA_CSV, DEFAULT_CLUSTER_MODE)
+    cluster_metadata = load_cluster_metadata()
+    initial_cluster_mode = cluster_metadata.get('cluster_mode', DEFAULT_CLUSTER_MODE) if cluster_metadata else DEFAULT_CLUSTER_MODE
+    initial_n_clusters = cluster_metadata.get('n_clusters', 20) if cluster_metadata else 20
+    initial_algorithm = cluster_metadata.get('algorithm', 'kmeans') if cluster_metadata else 'kmeans'
+
+    df, feature_cols, raw_feature_cols, cluster_col, image_col = load_dataset(DATA_CSV, initial_cluster_mode)
 
     # 将数据集与元数据放入服务端缓存，避免前端携带大体量 JSON
     set_data_cache({
@@ -209,21 +150,10 @@ def create_app():
         'raw_feature_cols': raw_feature_cols,
         'cluster_col': cluster_col,
         'image_col': image_col,
-        'cluster_mode': DEFAULT_CLUSTER_MODE,
+        'cluster_mode': initial_cluster_mode,
     })
 
-    hover_cols = [cluster_col]
-    for col in ['sample_id', 'unit_C', 'part_C', 'type_C']:
-        if col in df.columns:
-            hover_cols.append(col)
-    hover_cols = list(dict.fromkeys(hover_cols))
-
-    custom_data = ['sample_id']
-    for col in ['image_name', 'paired_images']:
-        if col in df.columns:
-            custom_data.append(col)
-
-    fig = build_initial_figure(df, feature_cols, cluster_col, hover_cols, custom_data)
+    fig = build_initial_figure()
 
     clusters = sorted(df[cluster_col].dropna().unique())
     unit_options = [{'label': str(u), 'value': u} for u in sorted(df['unit_C'].dropna().unique())] if 'unit_C' in df.columns else []
@@ -243,34 +173,7 @@ def create_app():
         {'label': 'PCA', 'value': 'pca'},
     ]
 
-    cluster_metadata = load_cluster_metadata()
-
-    def get_filter_options(selected_clusters):
-        """根据已选簇返回联动筛选项（unit/part/type）。"""
-        dff = df.copy()
-        if selected_clusters:
-            dff = dff[dff[cluster_col].isin(selected_clusters)]
-        units = [{'label': str(u), 'value': u} for u in sorted(dff['unit_C'].dropna().unique())] if 'unit_C' in dff.columns else []
-        parts = [{'label': str(p), 'value': p} for p in sorted(dff['part_C'].dropna().unique())] if 'part_C' in dff.columns else []
-        types = [{'label': str(t), 'value': t} for t in sorted(dff['type_C'].dropna().unique())] if 'type_C' in dff.columns else []
-        return units, parts, types
-
-    # 改为本地提供依赖，避免访问外部 CDN 导致加载过慢
-    app = Dash(
-        __name__,
-        serve_locally=True,
-        compress=True,
-        assets_folder=str(BASE_DIR / 'assets'),
-        assets_url_path='/assets',
-    )
-    app.title = APP_CONFIG['title']
-
-    # 从上次聚类结果中读取初始值，避免重启后显示默认值
-    initial_n_clusters = cluster_metadata.get('n_clusters', 20) if cluster_metadata else 20
-    initial_algorithm = cluster_metadata.get('algorithm', 'kmeans') if cluster_metadata else 'kmeans'
-    initial_cluster_mode = cluster_metadata.get('cluster_mode', DEFAULT_CLUSTER_MODE) if cluster_metadata else DEFAULT_CLUSTER_MODE
-
-    app.layout = build_layout(
+    return build_layout(
         fig=fig,
         clusters=clusters,
         init_unit_options=unit_options,
@@ -289,6 +192,37 @@ def create_app():
         cluster_col=cluster_col,
         image_col=image_col,
     )
+
+
+def create_app():
+    """创建并配置 Dash 应用实例。"""
+    def get_filter_options(selected_clusters):
+        """根据当前缓存中的数据返回联动筛选项。"""
+        data_cache = get_data_cache()
+        if not data_cache:
+            return [], [], []
+
+        df = data_cache['df']
+        cluster_col = data_cache['cluster_col']
+        dff = df.copy()
+        if selected_clusters:
+            dff = dff[dff[cluster_col].isin(selected_clusters)]
+
+        units = [{'label': str(u), 'value': u} for u in sorted(dff['unit_C'].dropna().unique())] if 'unit_C' in dff.columns else []
+        parts = [{'label': str(p), 'value': p} for p in sorted(dff['part_C'].dropna().unique())] if 'part_C' in dff.columns else []
+        types = [{'label': str(t), 'value': t} for t in sorted(dff['type_C'].dropna().unique())] if 'type_C' in dff.columns else []
+        return units, parts, types
+
+    # 改为本地提供依赖，避免访问外部 CDN 导致加载过慢
+    app = Dash(
+        __name__,
+        serve_locally=True,
+        compress=True,
+        assets_folder=str(BASE_DIR / 'assets'),
+        assets_url_path='/assets',
+    )
+    app.title = APP_CONFIG['title']
+    app.layout = build_app_layout
 
     server = app.server
 
