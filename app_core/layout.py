@@ -274,33 +274,6 @@ def build_layout(
                 'flexDirection': 'column',
             }),
         ], style={'display': 'flex', 'height': 'calc(100vh - 120px)'}),
-        html.Div(id='sample-panel', style={'marginTop': '12px', 'minHeight': '220px', 'borderTop': '1px solid #ddd', 'paddingTop': '8px'}),
-        html.Div(id='selected-meta'),
-        html.Div([
-            html.Div([
-                html.H4('手动比较视图', style={'margin': 0}),
-                html.Div([
-                    html.Button('清空比较', id='compare-clear-bottom', style={'width': '120px'})
-                ], style={'display': 'flex', 'gap': '8px', 'marginTop': '6px'})
-            ], style={'display': 'flex', 'flexDirection': 'column', 'gap': '4px', 'marginBottom': '8px'}),
-            html.Div([
-                html.Div([
-                    html.Label('卡片尺寸'),
-                    dcc.Slider(id='compare-size', min=140, max=320, step=20, value=220,
-                               marks={140:'140', 200:'200', 260:'260', 320:'320'}, tooltip={'placement':'bottom','always_visible':False}),
-                ], style={'flex': '1', 'minWidth': '200px', 'marginRight': '12px'}),
-                html.Div([
-                    html.Label('布局模式'),
-                    dcc.RadioItems(
-                        id='compare-layout',
-                        options=[{'label': '网格换行', 'value': 'grid'}, {'label': '横向滚动', 'value': 'row'}],
-                        value='grid',
-                        labelStyle={'marginRight': '12px'}
-                    )
-                ], style={'width': '260px'})
-            ], style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '12px', 'marginBottom': '8px'}),
-            html.Div(id='compare-panel', style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '16px', 'padding': '8px', 'border': '1px dashed #ddd', 'minHeight': '120px'})
-        ], id='compare-section', style={'borderTop': '1px solid #eee', 'paddingTop': '8px', 'marginTop': '8px'}),
         # Keep only lightweight metadata in the client store; full df is cached server-side
         dcc.Store(id='data-store', data={
             'feature_cols': feature_cols,
