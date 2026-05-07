@@ -43,7 +43,7 @@ def register_cluster_panel_callbacks(app):
                         'border': '1px solid #ccc',
                         'cursor': 'pointer'
                     },
-                    title='点击放大查看'
+                    title=f'{Path(pth).name} | 点击放大查看'
                 ))
             else:
                 thumbs.append(html.Div(str(Path(pth).name)))

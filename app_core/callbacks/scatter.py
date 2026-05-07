@@ -640,7 +640,7 @@ def register_scatter_callbacks(app, *, csv_path, image_root, get_filter_options)
                             'marginRight': '6px',
                             'cursor': 'pointer'
                         },
-                        title='点击放大查看'
+                        title=f'{Path(nm).name} | 点击放大查看'
                     ),
                     html.Div(side_txt, style={'textAlign': 'center', 'fontSize': '12px', 'color': '#555', 'marginTop': '4px'})
                 ], style={'display': 'flex', 'flexDirection': 'column', 'alignItems': 'center'}))

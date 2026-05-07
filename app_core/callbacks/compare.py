@@ -221,7 +221,8 @@ def register_compare_callbacks(app):
 
                     style={'height': f'{img_h}px', 'border': '1px solid #ccc', 'borderRadius': '4px', 'backgroundColor': '#fafafa'},
 
-                    **({'data-image-path': Path(pth).name} if pth else {})
+                    **({'data-image-path': Path(pth).name} if pth else {}),
+                    title='点击放大查看' if pth else '图片不可用',
 
                 ),
 

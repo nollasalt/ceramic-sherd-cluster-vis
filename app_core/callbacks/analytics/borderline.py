@@ -289,7 +289,7 @@ def register_borderline_callbacks(app, *, image_root):
                             'objectFit': 'cover', 'borderRadius': '6px 6px 0 0',
                             'border': '1px solid #e0e0e0',
                         },
-                        title=str(img_val),
+                        title=f'{img_val} | 点击放大查看',
                         **{'data-image-path': fname},
                     ),
                     html.Div([

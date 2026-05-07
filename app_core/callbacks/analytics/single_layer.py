@@ -174,7 +174,8 @@ def register_single_layer_callbacks(app, *, image_root):
                         'borderRadius': '4px',
                         'backgroundColor': '#fafafa',
                     },
-                    title=str(img_val),
+                    **{'data-image-path': fname},
+                    title=f'{img_val} | 点击放大查看',
                 ))
 
             sample_cards.append(html.Div([

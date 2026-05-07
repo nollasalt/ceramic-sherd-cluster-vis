@@ -93,6 +93,7 @@ def register_cluster_preview_callbacks(app, *, image_root):
             thumbs.append(html.Div([
                 html.Img(
                     src=f'/img/{fname}',
+                    **{'data-image-path': fname},
                     style={
                         'width': '100%',
                         'height': '100px',
@@ -100,8 +101,9 @@ def register_cluster_preview_callbacks(app, *, image_root):
                         'border': '1px solid #ddd',
                         'borderRadius': '4px',
                         'backgroundColor': '#fff',
+                        'cursor': 'pointer',
                     },
-                    title=str(img_val),
+                    title=f'{img_val} | 点击放大查看',
                 ),
                 html.Div(
                     str(sample_id)[:12],

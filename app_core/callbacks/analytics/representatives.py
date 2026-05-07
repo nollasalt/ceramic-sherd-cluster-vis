@@ -187,7 +187,7 @@ def register_representatives_callbacks(app, *, image_root):
                         'borderRadius': '4px', 'backgroundColor': '#fafafa',
                     },
                     **{'data-image-path': fname},
-                    title=str(img_val),
+                    title=f'{img_val} | 点击放大查看',
                 ))
 
             while len(thumbs) < n_per:
