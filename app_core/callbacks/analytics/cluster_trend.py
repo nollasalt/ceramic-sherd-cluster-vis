@@ -238,10 +238,23 @@ def register_cluster_trend_callbacks(app):
                 y=s['ys'],
                 mode='lines+markers',
                 name=f'簇{cid} [{meta["label"]}]',
-                line=dict(color=line_color, width=2),
+                line=dict(color=line_color, width=3),
                 marker=dict(size=5, color=line_color),
                 text=hover_text,
                 hovertemplate='%{text}<extra></extra>',
+                legendgroup=str(cid),
+            ))
+
+            # 宽透明命中线：专门提升“实际折线段”的鼠标命中面积
+            fig.add_trace(go.Scatter(
+                x=x_indices,
+                y=s['ys'],
+                mode='lines',
+                name=f'簇{cid} hit-area',
+                line=dict(color='rgba(0,0,0,0.003)', width=16),
+                opacity=1,
+                showlegend=False,
+                hoverinfo='skip',
                 legendgroup=str(cid),
             ))
 
@@ -251,7 +264,7 @@ def register_cluster_trend_callbacks(app):
                 y=s['trend_y'],
                 mode='lines',
                 name=f'簇{cid} 趋势',
-                line=dict(color=line_color, width=1.5, dash='dash'),
+                line=dict(color=line_color, width=2.5, dash='dash'),
                 opacity=0.55,
                 showlegend=False,
                 hoverinfo='skip',
@@ -280,7 +293,7 @@ def register_cluster_trend_callbacks(app):
                 tracegroupgap=2,
             ),
             margin=dict(l=60, r=180, t=60, b=80),
-            hovermode='x unified' if len(stats_show) <= 10 else 'closest',
+            hovermode='closest',
         )
 
         # ── 趋势分类汇总 ──────────────────────────────────────────────────

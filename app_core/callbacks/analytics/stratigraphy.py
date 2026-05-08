@@ -55,6 +55,36 @@ def _simpson_concentration(counts):
     return float(np.sum((counts / total) ** 2))
 
 
+def _color_with_alpha(color, alpha):
+    """将 Plotly 颜色字符串转换为带指定透明度的 rgba。"""
+    if not color:
+        return f'rgba(180,180,180,{alpha})'
+
+    color = str(color).strip()
+    if color.startswith('rgba('):
+        parts = [p.strip() for p in color[5:-1].split(',')]
+        if len(parts) >= 3:
+            return f'rgba({parts[0]},{parts[1]},{parts[2]},{alpha})'
+    if color.startswith('rgb('):
+        parts = [p.strip() for p in color[4:-1].split(',')]
+        if len(parts) >= 3:
+            return f'rgba({parts[0]},{parts[1]},{parts[2]},{alpha})'
+    if color.startswith('#'):
+        hex_color = color.lstrip('#')
+        if len(hex_color) == 3:
+            hex_color = ''.join(ch * 2 for ch in hex_color)
+        if len(hex_color) == 6:
+            try:
+                r = int(hex_color[0:2], 16)
+                g = int(hex_color[2:4], 16)
+                b = int(hex_color[4:6], 16)
+                return f'rgba({r},{g},{b},{alpha})'
+            except ValueError:
+                pass
+
+    return color
+
+
 # ── 主回调 ────────────────────────────────────────────────────────────────────
 
 def register_stratigraphy_callbacks(app):
@@ -142,20 +172,26 @@ def register_stratigraphy_callbacks(app):
         layer_idx = {lyr: i for i, lyr in enumerate(layers_sorted)}
         cluster_idx = {c: n_layers + i for i, c in enumerate(clusters_sorted)}
 
-        sources, targets, values, link_labels = [], [], [], []
+        layer_colors = [
+            _color_with_alpha(CLUSTER_COLORS[i % len(CLUSTER_COLORS)], 0.78)
+            for i in range(n_layers)
+        ]
+
+        sources, targets, values, link_labels, link_colors = [], [], [], [], []
         for _, row in pivot.iterrows():
             lyr, cid, cnt = row['unit_C'], row[cluster_col], int(row['count'])
             if cnt < min_link:
                 continue
             if lyr not in layer_idx or cid not in cluster_idx:
                 continue
+            layer_color = layer_colors[layer_idx[lyr]]
             sources.append(layer_idx[lyr])
             targets.append(cluster_idx[cid])
             values.append(cnt)
             link_labels.append(f'{lyr} → 簇{cid}：{cnt} 片')
+            link_colors.append(_color_with_alpha(layer_color, 0.48))
 
         # 节点颜色
-        layer_colors = [f'rgba(31,119,180,{0.5 + 0.4 * i / max(n_layers - 1, 1)})' for i in range(n_layers)]
         cluster_colors = [
             CLUSTER_COLORS[int(c) % len(CLUSTER_COLORS)] if str(c).lstrip('-').isdigit() else CLUSTER_COLORS[i % len(CLUSTER_COLORS)]
             for i, c in enumerate(clusters_sorted)
@@ -177,7 +213,7 @@ def register_stratigraphy_callbacks(app):
                     target=targets,
                     value=values,
                     label=link_labels,
-                    color='rgba(180,180,180,0.35)',
+                    color=link_colors,
                 ),
             ))
             sankey_fig.update_layout(
