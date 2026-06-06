@@ -34,6 +34,18 @@ def _sorted_layers(layers):
     return sorted(layers, key=_layer_sort_key)
 
 
+def _cluster_sort_key(value):
+    """按簇名称排序，数字优先按数值排，其余按字符串排。"""
+    if value is None:
+        return (2, '')
+    text = str(value).strip()
+    if text == '':
+        return (2, '')
+    if text.lstrip('-').isdigit():
+        return (0, int(text))
+    return (1, text)
+
+
 # ── 统计计算辅助 ───────────────────────────────────────────────────────────────
 
 def _shannon_entropy(counts):
@@ -85,6 +97,56 @@ def _color_with_alpha(color, alpha):
     return color
 
 
+def _sankey_node_style(n_nodes):
+    """根据节点数量动态调整 Sankey 节点厚度、间距和图高。"""
+    n_nodes = max(int(n_nodes or 0), 1)
+    if n_nodes >= 20:
+        thickness = 9
+        pad = 4
+    elif n_nodes >= 16:
+        thickness = 10
+        pad = 5
+    elif n_nodes >= 14:
+        thickness = 12
+        pad = 6
+    elif n_nodes >= 10:
+        thickness = 14
+        pad = 8
+    else:
+        thickness = 18
+        pad = 12
+
+    height = max(560, 160 + n_nodes * (thickness + pad + 12))
+    font_size = 10 if n_nodes >= 18 else 11 if n_nodes >= 14 else 12
+    return thickness, pad, height, font_size
+
+
+def _ordered_node_positions(weights, top=0.03, bottom=0.97, min_gap=0.012):
+    """按节点总流量分配纵向锚点，尽量在 snap 下保持既定顺序。"""
+    weights = [max(float(w or 0), 0.0) for w in weights]
+    n_nodes = len(weights)
+    if n_nodes <= 0:
+        return []
+    if n_nodes == 1:
+        return [0.5]
+
+    total = sum(weights)
+    if total <= 0:
+        return np.linspace(top, bottom, n_nodes).tolist()
+
+    span = max(bottom - top, 0.2)
+    gap = min(min_gap, span / max(n_nodes * 3, 3))
+    usable = max(span - gap * (n_nodes - 1), span * 0.5)
+    heights = [(w / total) * usable for w in weights]
+
+    positions = []
+    cursor = top
+    for height in heights:
+        positions.append(cursor)
+        cursor += height + gap
+    return positions
+
+
 # ── 主回调 ────────────────────────────────────────────────────────────────────
 
 def register_stratigraphy_callbacks(app):
@@ -109,7 +171,7 @@ def register_stratigraphy_callbacks(app):
         units_sorted = _sorted_layers(units)
         unit_opts = [{'label': str(u), 'value': u} for u in units_sorted]
 
-        clusters = sorted(df[cluster_col].dropna().unique())
+        clusters = sorted(df[cluster_col].dropna().unique(), key=_cluster_sort_key)
         cluster_opts = [{'label': f'簇 {c}', 'value': c} for c in clusters]
 
         return unit_opts, cluster_opts
@@ -163,14 +225,37 @@ def register_stratigraphy_callbacks(app):
 
         layers_sorted = _sorted_layers(matrix.index.tolist())
         matrix = matrix.reindex(layers_sorted)
-        clusters_sorted = sorted(matrix.columns.tolist())
+        clusters_sorted = sorted(matrix.columns.tolist(), key=_cluster_sort_key)
         matrix = matrix[clusters_sorted]
 
         # ── Sankey ────────────────────────────────────────────────────────────
         min_link = int(min_link or 5)
-        n_layers = len(layers_sorted)
-        layer_idx = {lyr: i for i, lyr in enumerate(layers_sorted)}
-        cluster_idx = {c: n_layers + i for i, c in enumerate(clusters_sorted)}
+        filtered_links = []
+        active_layers = []
+        active_clusters = []
+        active_layer_set = set()
+        active_cluster_set = set()
+
+        for _, row in pivot.iterrows():
+            lyr, cid, cnt = row['unit_C'], row[cluster_col], int(row['count'])
+            if cnt < min_link:
+                continue
+            filtered_links.append((lyr, cid, cnt))
+            if lyr not in active_layer_set:
+                active_layer_set.add(lyr)
+                active_layers.append(lyr)
+            if cid not in active_cluster_set:
+                active_cluster_set.add(cid)
+                active_clusters.append(cid)
+
+        active_layers = [lyr for lyr in layers_sorted if lyr in active_layer_set]
+        active_clusters = [cid for cid in clusters_sorted if cid in active_cluster_set]
+
+        n_layers = len(active_layers)
+        n_clusters = len(active_clusters)
+        layer_idx = {lyr: i for i, lyr in enumerate(active_layers)}
+        cluster_idx = {c: n_layers + i for i, c in enumerate(active_clusters)}
+        filtered_links.sort(key=lambda item: (layer_idx.get(item[0], 10**9), _cluster_sort_key(item[1])))
 
         layer_colors = [
             _color_with_alpha(CLUSTER_COLORS[i % len(CLUSTER_COLORS)], 0.78)
@@ -178,10 +263,7 @@ def register_stratigraphy_callbacks(app):
         ]
 
         sources, targets, values, link_labels, link_colors = [], [], [], [], []
-        for _, row in pivot.iterrows():
-            lyr, cid, cnt = row['unit_C'], row[cluster_col], int(row['count'])
-            if cnt < min_link:
-                continue
+        for lyr, cid, cnt in filtered_links:
             if lyr not in layer_idx or cid not in cluster_idx:
                 continue
             layer_color = layer_colors[layer_idx[lyr]]
@@ -194,10 +276,16 @@ def register_stratigraphy_callbacks(app):
         # 节点颜色
         cluster_colors = [
             CLUSTER_COLORS[int(c) % len(CLUSTER_COLORS)] if str(c).lstrip('-').isdigit() else CLUSTER_COLORS[i % len(CLUSTER_COLORS)]
-            for i, c in enumerate(clusters_sorted)
+            for i, c in enumerate(active_clusters)
         ]
-        node_labels = [str(lyr) for lyr in layers_sorted] + [f'簇{c}' for c in clusters_sorted]
+        node_labels = [str(lyr) for lyr in active_layers] + [f'簇{c}' for c in active_clusters]
         node_colors = layer_colors + cluster_colors
+        layer_weights = [sum(cnt for lyr, _, cnt in filtered_links if lyr == active_layer) for active_layer in active_layers]
+        cluster_weights = [sum(cnt for _, cid, cnt in filtered_links if cid == active_cluster) for active_cluster in active_clusters]
+        node_x = ([0.08] * n_layers) + ([0.92] * n_clusters)
+        node_y = _ordered_node_positions(layer_weights) + _ordered_node_positions(cluster_weights)
+        max_column_nodes = max(n_layers, n_clusters)
+        node_thickness, node_pad, sankey_height, sankey_font_size = _sankey_node_style(max_column_nodes)
 
         if values:
             sankey_fig = go.Figure(go.Sankey(
@@ -205,8 +293,10 @@ def register_stratigraphy_callbacks(app):
                 node=dict(
                     label=node_labels,
                     color=node_colors,
-                    pad=12,
-                    thickness=18,
+                    pad=node_pad,
+                    thickness=node_thickness,
+                    x=node_x,
+                    y=node_y,
                 ),
                 link=dict(
                     source=sources,
@@ -218,14 +308,16 @@ def register_stratigraphy_callbacks(app):
             ))
             sankey_fig.update_layout(
                 title=f'层位 → 簇 流向图｜最小连线 ≥ {min_link} 片',
-                margin=dict(l=20, r=20, t=50, b=20),
-                font_size=12,
+                margin=dict(l=48, r=48, t=60, b=36),
+                font_size=sankey_font_size,
+                height=sankey_height,
             )
         else:
             sankey_fig = go.Figure()
             sankey_fig.update_layout(
                 title='无满足阈值的连线，请降低最小连线值',
-                margin=dict(l=20, r=20, t=50, b=20),
+                margin=dict(l=48, r=48, t=60, b=36),
+                height=500,
             )
 
         # ── 热力图 ────────────────────────────────────────────────────────────

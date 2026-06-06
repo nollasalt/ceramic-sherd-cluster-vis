@@ -123,17 +123,19 @@ def register_cluster_trend_callbacks(app):
         cluster_col = data_cache['cluster_col']
 
         # 只取需要的列
-        dff = df[[cluster_col, 'unit_C']].dropna(subset=['unit_C'])
-        dff = dff[dff['unit_C'].astype(str).str.strip() != '']
+        base_df = df[[cluster_col, 'unit_C']].dropna(subset=['unit_C'])
+        base_df = base_df[base_df['unit_C'].astype(str).str.strip() != '']
 
-        if len(dff) == 0:
+        if len(base_df) == 0:
             empty = go.Figure()
             empty.update_layout(title='暂无地层数据（需要 unit_C 列）')
             msg = html.Div('暂无数据', style={'color': '#888', 'padding': '8px'})
             return empty, msg, msg
 
         if sel_units:
-            dff = dff[dff['unit_C'].isin(sel_units)]
+            base_df = base_df[base_df['unit_C'].isin(sel_units)]
+
+        dff = base_df
         if sel_clusters:
             dff = dff[dff[cluster_col].isin(sel_clusters)]
 
@@ -154,7 +156,9 @@ def register_cluster_trend_callbacks(app):
         x_labels = [str(lyr) for lyr in layers_sorted]
 
         # 层总量（用于按层归一化）
-        layer_totals = dff.groupby('unit_C', observed=True).size().reindex(layers_sorted, fill_value=0)
+        # 这里必须基于“层位筛选后、但未按簇筛选”的数据，
+        # 否则只选一个簇时会退化成该簇 / 该簇 = 100%。
+        layer_totals = base_df.groupby('unit_C', observed=True).size().reindex(layers_sorted, fill_value=0)
 
         min_layers = int(min_layers or 2)
         type_filter = set(type_filter or list(_TYPE_META.keys()))

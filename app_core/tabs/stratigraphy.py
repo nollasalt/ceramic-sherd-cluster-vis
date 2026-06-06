@@ -78,7 +78,7 @@ def build_stratigraphy_tab():
                     html.P('层位 → 簇 流向图', className='dash-card-title'),
                     dcc.Loading(
                         type='default',
-                        children=dcc.Graph(id='stratigraphy-sankey', style={'height': '500px'}),
+                        children=dcc.Graph(id='stratigraphy-sankey'),
                     ),
                 ], style=_CARD),
 
